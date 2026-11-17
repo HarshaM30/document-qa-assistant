@@ -1,0 +1,42 @@
+// Typed fetch wrapper: sends the session cookie and the CSRF header on every request.
+
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+  headers.set('X-Requested-With', 'XMLHttpRequest')
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers,
+    credentials: 'include',
+  })
+  if (!response.ok) {
+    let message = response.statusText
+    try {
+      const body: unknown = await response.json()
+      if (body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string') {
+        message = body.detail
+      }
+    } catch {
+      // non-JSON error body; keep the status text
+    }
+    throw new ApiError(response.status, message)
+  }
+  if (response.status === 204) {
+    return undefined as T
+  }
+  return (await response.json()) as T
+}

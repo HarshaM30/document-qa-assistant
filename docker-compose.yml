@@ -1,0 +1,97 @@
+# Full local stack. Host ports: Postgres 5434, Redis 6380, API 8000, frontend 5173.
+# Values are interpolated from .env (see .env.example).
+name: docqa
+
+x-backend: &backend
+  build:
+    context: ./backend
+  image: docqa-backend:local
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    REDIS_URL: redis://redis:6379/0
+    DOCQA_ROOT: /app
+    FASTEMBED_CACHE_DIR: /app/.cache/fastembed
+    UPLOAD_DIR: /app/data/uploads
+    RAW_DATA_DIR: /app/data/raw
+  volumes:
+    - ./data:/app/data
+    - fastembed-cache:/app/.cache/fastembed
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 768m
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb"]
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 192m
+
+  api:
+    <<: *backend
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn docqa.main:create_app --factory --host 0.0.0.0 --port 8000"
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    mem_limit: 1g
+
+  worker:
+    <<: *backend
+    command: ["arq", "docqa.worker.settings.WorkerSettings"]
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 1536m
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    image: docqa-frontend:local
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 64m
+
+volumes:
+  pgdata:
+  redisdata:
+  fastembed-cache:

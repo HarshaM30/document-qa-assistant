@@ -79,8 +79,7 @@ document-qa-assistant/
 │       └── fixtures/             # tiny 10-K HTML excerpt, tiny PDF
 ├── frontend/
 │   ├── package.json
-│   ├── vite.config.ts
-│   ├── tailwind.config.ts
+│   ├── vite.config.ts            # includes the Tailwind v4 plugin (no tailwind.config.ts)
 │   ├── tsconfig.json
 │   ├── eslint.config.js
 │   ├── Dockerfile
@@ -125,7 +124,7 @@ document-qa-assistant/
 
 | Area | Decision | Why |
 |---|---|---|
-| Sessions | Opaque random token in an `HttpOnly`, `SameSite=Lax` cookie; SHA-256 of token stored in Postgres `sessions` table | Revocable logout, no JWT pitfalls, nothing sensitive client-side |
+| Sessions | Opaque random token in an `HttpOnly`, `SameSite=Lax` cookie; HMAC-SHA256 of the token (keyed by `SESSION_SECRET_KEY`) stored in Postgres `sessions` table | Revocable logout, no JWT pitfalls, nothing sensitive client-side; a leaked table can't be replayed, and rotating the key revokes every session |
 | Passwords | argon2id (`argon2-cffi`) | Current OWASP recommendation |
 | CSRF | SameSite=Lax + require `X-Requested-With` header on state-changing requests + strict CORS origin | Simple and sufficient for a same-site SPA |
 | Tenancy | Every document/chunk query is scoped by `workspace_id`, and workspace ownership is checked against the session user | Users only ever see their own data; enforced in one retrieval function and tested |
@@ -159,17 +158,17 @@ document-qa-assistant/
 5. Auth: signup, login, logout, `/auth/me`; argon2id; session table; cookie settings from env; CSRF header check.
 6. Workspaces CRUD scoped to the current user.
 7. `/health` reporting DB, Redis, and status.
-8. `frontend/`: Vite + React + TS, Tailwind, TanStack Query, React Router, ESLint; placeholder pages.
-9. `Makefile`: `setup`, `up`, `down`, `migrate`, `dev-api`, `dev-worker`, `dev-web`, `lint`, `typecheck`, `test-unit`, `test-int`, `e2e`, `fmt`.
+8. `frontend/`: Vite + React + TS, Tailwind (v4, via `@tailwindcss/vite`), TanStack Query, React Router, ESLint; placeholder pages. TypeScript is pinned to 6.0 because typescript-eslint does not yet support TypeScript 7.
+9. `Makefile`: `setup`, `up`, `down`, `deps` (Postgres + Redis only), `migrate`, `dev-api`, `dev-worker`, `dev-web`, `lint`, `typecheck`, `test-unit`, `test-int`, `e2e`, `fmt`.
 10. GitHub Actions CI on every push, as separate jobs: ruff + mypy, unit tests, integration tests (pgvector + Redis service containers), frontend `tsc --noEmit` + ESLint + `vite build`. Cache uv, npm, and fastembed models. (The Playwright E2E job is added in Milestone 4, once there is a UI to test.)
 
 **Done when**
-- [ ] `make setup && make up` brings up Postgres, Redis, API, worker, and frontend; `curl localhost:8000/health` returns all-green.
-- [ ] `make migrate` applies cleanly to an empty DB and `alembic downgrade base` reverses it.
-- [ ] Integration tests cover: signup → login → `/auth/me` → logout → `/auth/me` returns 401; duplicate email rejected; wrong password rejected; user A cannot read user B's workspace (404).
-- [ ] Password hashes are argon2id; session cookie is `HttpOnly`, `SameSite=Lax`, `Secure` when configured.
+- [x] `make setup && make up` brings up Postgres, Redis, API, worker, and frontend; `curl localhost:8000/health` returns all-green.
+- [x] `make migrate` applies cleanly to an empty DB and `alembic downgrade base` reverses it.
+- [x] Integration tests cover: signup → login → `/auth/me` → logout → `/auth/me` returns 401; duplicate email rejected; wrong password rejected; user A cannot read user B's workspace (404).
+- [x] Password hashes are argon2id; session cookie is `HttpOnly`, `SameSite=Lax`, `Secure` when configured.
 - [ ] `make lint typecheck test-unit test-int` passes locally; CI is green on push.
-- [ ] No service binds 5432, 5433, or 6379.
+- [x] No service binds 5432, 5433, or 6379.
 
 ### Milestone 2 — Ingestion
 
