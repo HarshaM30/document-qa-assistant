@@ -42,7 +42,7 @@ document-qa-assistant/
 │   │   │   ├── edgar.py          # EDGAR client: user agent, rate limiter, retries
 │   │   │   ├── html_10k.py       # 10-K HTML → Items (sections) + tables
 │   │   │   ├── tables.py         # table → labelled text ("Row | Column: value")
-│   │   │   ├── pdf.py            # PDF → pages (+ tables where detectable)
+│   │   │   ├── pdf.py            # pdfplumber: PDF → pages (+ tables where detectable)
 │   │   │   ├── chunking.py       # section/table-aware and naive chunkers
 │   │   │   ├── embedding.py      # fastembed wrapper (lazy-loaded, batched)
 │   │   │   └── pipeline.py       # parse → chunk → embed → store, with progress
@@ -70,6 +70,7 @@ document-qa-assistant/
 │   │       ├── ablations.py
 │   │       ├── generation_eval.py
 │   │       ├── judge.py
+│   │       ├── xbrl_check.py     # cross-check numeric gold answers vs SEC companyfacts
 │   │       ├── budget.py         # daily request/token budget + checkpointing
 │   │       └── human_check.py    # export + agreement report
 │   └── tests/
@@ -104,11 +105,12 @@ document-qa-assistant/
 │   ├── ingest_throughput.py
 │   └── results.md
 ├── data/
-│   ├── companies.yaml            # pinned tickers/CIKs + fiscal years
+│   ├── companies.yaml            # tickers + CIKs (5 companies)
+│   ├── filings.lock.json         # resolved accession numbers + SHA-256s (committed)
 │   └── raw/                      # gitignored; reproduced by download script
 ├── docs/
 │   └── demo.gif
-├── .github/workflows/ci.yml
+├── .github/workflows/ci.yml       # lint, typecheck, unit, integration, build, e2e jobs
 ├── docker-compose.yml
 ├── Makefile
 ├── .env.example
@@ -135,6 +137,9 @@ document-qa-assistant/
 | Tables | Each table emitted as its own chunk, rendered as `Row label \| Column header: value` lines with the table caption and section prepended | Keeps numbers attached to their meaning; never split mid-row |
 | Citations | Prompt numbers context passages `[1]..[n]`; server maps markers to chunk → (document, Item/section or page) and sends a `citations` SSE event | Exact, verifiable sources; frontend fetches the passage on click |
 | Refusal | Two layers: (1) if best rerank score < threshold → refuse without calling the LLM; (2) prompt instructs a fixed refusal sentence, detected server-side | Saves LLM calls and makes refusal measurable |
+| LLM models | Answer: `openai/gpt-oss-120b`; judge: `qwen/qwen3.8-27b` (fallback judge: `openai/gpt-oss-20b`). Both via LiteLLM `groq/` prefix | Must be on Groq's free tier and differ from each other; a judge from a different model family reduces self-preference bias. See section 4 |
+| PDF parsing | pdfplumber | MIT license; page-level text and table extraction |
+| Filing selection | For each company, the 3 most recent original 10-Ks on EDGAR (10-K/A excluded), resolved once and pinned in `data/filings.lock.json` | "Latest three" changes over time; the lockfile keeps the corpus and eval dataset reproducible |
 | Fake LLM | LiteLLM custom provider `fake/…` that returns a deterministic extractive answer from the top passages with `[n]` markers, or the refusal sentence | Streams like a real model; tests and CI need no network or key |
 | Queue | arq on Redis; job state mirrored in an `ingestion_jobs` table (status, stage, progress %, attempts, error) | UI polls Postgres state; retries with exponential backoff |
 | Rate limit | Redis sliding window per user (per-minute and per-day) on `/ask`; returns 429 with `Retry-After` | Protects the free-tier LLM quota |
@@ -156,7 +161,7 @@ document-qa-assistant/
 7. `/health` reporting DB, Redis, and status.
 8. `frontend/`: Vite + React + TS, Tailwind, TanStack Query, React Router, ESLint; placeholder pages.
 9. `Makefile`: `setup`, `up`, `down`, `migrate`, `dev-api`, `dev-worker`, `dev-web`, `lint`, `typecheck`, `test-unit`, `test-int`, `e2e`, `fmt`.
-10. GitHub Actions CI: ruff, mypy, unit tests, integration tests (pgvector + Redis service containers), frontend `tsc --noEmit`, ESLint, `vite build`. Cache uv, npm.
+10. GitHub Actions CI on every push, as separate jobs: ruff + mypy, unit tests, integration tests (pgvector + Redis service containers), frontend `tsc --noEmit` + ESLint + `vite build`. Cache uv, npm, and fastembed models. (The Playwright E2E job is added in Milestone 4, once there is a UI to test.)
 
 **Done when**
 - [ ] `make setup && make up` brings up Postgres, Redis, API, worker, and frontend; `curl localhost:8000/health` returns all-green.
@@ -169,11 +174,11 @@ document-qa-assistant/
 ### Milestone 2 — Ingestion
 
 **Tasks**
-1. `data/companies.yaml`: 5 companies (ticker, CIK) and 3 fiscal years.
-2. EDGAR downloader (`docqa download-edgar`): resolves filings via `data.sec.gov/submissions/CIK##########.json`, downloads the primary 10-K document, sends `SEC_USER_AGENT`, token-bucket limited to `SEC_MAX_REQUESTS_PER_SECOND` (< SEC's 10 req/s), retries on 429/5xx with backoff, skips files already present, writes a manifest with SHA-256s. Refuses to run if `SEC_USER_AGENT` is unset or still the placeholder.
+1. `data/companies.yaml`: Apple (AAPL), Microsoft (MSFT), Amazon (AMZN), JPMorgan Chase (JPM), Johnson & Johnson (JNJ), with CIKs.
+2. EDGAR downloader (`docqa download-edgar`): `--resolve` reads `data.sec.gov/submissions/CIK##########.json`, picks the 3 most recent original 10-K filings per company (form `10-K`, not `10-K/A`), and writes `data/filings.lock.json` (ticker, fiscal year end, accession number, primary document URL, filing date). Without `--resolve` it downloads exactly what the lockfile lists. Expected as of Nov 2026: Apple and Microsoft FY2024–FY2026 (Sept/June year-ends), Amazon, JPMorgan, and J&J FY2023–FY2025 (calendar year-ends). It downloads each primary 10-K document, sends `SEC_USER_AGENT`, token-bucket limited to `SEC_MAX_REQUESTS_PER_SECOND` (< SEC's 10 req/s), retries on 429/5xx with backoff, skips files already present, writes a manifest with SHA-256s. Refuses to run if `SEC_USER_AGENT` is unset or still the placeholder.
 3. 10-K HTML parser: strip inline XBRL wrappers, detect `Item 1`, `1A`, `7`, `7A`, `8`, … headings (skipping the table of contents), produce sections with ordered text blocks and tables.
 4. Table-to-text: resolve header rows (including multi-row/colspan headers), merge split `$`/`%`/parenthesis cells, emit `Row | Column: value` lines; keep caption and units ("in millions").
-5. PDF parser (pypdf or pdfplumber) producing per-page text; pages are the citation unit.
+5. PDF parser using pdfplumber, producing per-page text (and tables via `extract_tables`, rendered with the same table-to-text format); pages are the citation unit.
 6. Chunkers: section-aware (respects section boundaries, tables as standalone chunks, token-based size + overlap using the embedding model's tokenizer) and a naive fixed-size chunker for ablations.
 7. Embedding wrapper: lazy model load, batching, configurable cache dir.
 8. Upload endpoint: PDF only, size limit, MIME + magic-byte check, stores file, creates `Document` + `IngestionJob`, enqueues arq job.
@@ -182,7 +187,8 @@ document-qa-assistant/
 11. Document status endpoint (polled by UI).
 
 **Done when**
-- [ ] `make download` fetches exactly 15 filings into `data/raw/`; re-running downloads nothing new; logs show the user agent and request rate stays under the limit.
+- [ ] `filings.lock.json` is committed with 15 entries (3 per company, no amendments), and its fiscal years match the most recent 10-Ks on EDGAR as of resolution date.
+- [ ] `make download` fetches exactly the 15 locked filings into `data/raw/` and verifies their SHA-256s; re-running downloads nothing new; logs show the user agent and request rate stays under the limit.
 - [ ] Parser unit tests on a fixture excerpt: correct Item boundaries, TOC entries ignored, a known table rendered with row and column labels and units intact.
 - [ ] Every one of the 15 filings parses with Items 1, 1A, 7, and 8 detected (asserted by a test over `data/raw` that is skipped when data is absent).
 - [ ] Uploading a sample PDF produces chunks with correct page numbers; status moves through all stages to `done`.
@@ -193,9 +199,10 @@ document-qa-assistant/
 ### Milestone 3 — Retrieval and generation
 
 **Tasks**
+0. **Model check (before anything else in this milestone):** `docqa check-llm` sends one tiny completion to each of `LLM_MODEL` and `JUDGE_MODEL` with your key, prints the actual rate limits from Groq's `x-ratelimit-*` response headers, and fails clearly on `model_not_found`. If the primary judge is unavailable, switch to the fallback judge and update `.env.example` and this plan.
 1. Vector search (cosine, HNSW, `ef_search` configurable) and keyword search (FTS), both scoped by workspace.
 2. RRF fusion; cross-encoder rerank to top-N; all stages toggleable for ablations.
-3. LiteLLM factory from `LLM_PROVIDER`/`LLM_MODEL`; fake provider registered for `fake`.
+3. LiteLLM factory from `LLM_PROVIDER`/`LLM_MODEL`; fake provider registered for `fake`. For reasoning models (gpt-oss), set low reasoning effort so hidden reasoning tokens don't use up the per-minute token limit.
 4. LangChain chain: retrieve → refusal gate → prompt with numbered passages → stream tokens.
 5. `/ask` SSE endpoint emitting `token`, `citations`, `refusal`, `done`, and `error` events; persists question, answer, and citations.
 6. Citation parsing and validation (drop markers that reference nonexistent passages).
@@ -203,6 +210,7 @@ document-qa-assistant/
 8. Redis rate limiter on `/ask` (per-minute and per-day), 429 with `Retry-After`.
 
 **Done when**
+- [ ] `docqa check-llm` succeeds for both the answer and judge models with your key; their observed free-tier limits are written into this plan and used as the eval budget defaults.
 - [ ] Unit tests: RRF math on hand-built rankings; rerank reorders as expected; citation parser handles `[1]`, `[1][3]`, `[1, 3]`, and invalid markers.
 - [ ] Integration test (fake LLM): ask over fixture docs → SSE stream contains tokens, a `citations` event pointing to the right chunk, and `done`.
 - [ ] A question with no relevant context yields a `refusal` event and no LLM call (verified via fake-provider call counter).
@@ -220,6 +228,7 @@ document-qa-assistant/
 5. Chat page: POST-based SSE reader, streaming render, stop button, refusal styling, rate-limit message.
 6. Citation chips → side panel showing source passage, document name, and Item/section or page.
 7. Playwright E2E with the fake LLM: sign up → create workspace → upload fixture PDF → wait for `done` → ask → click citation → passage visible.
+8. CI: add a separate `e2e` job that starts Postgres + Redis service containers, runs migrations, starts API + worker with `LLM_PROVIDER=fake`, serves the built frontend, runs Playwright (Chromium only), and uploads the Playwright report as an artifact on failure.
 
 **Done when**
 - [ ] All pages work against the real backend; refresh preserves the session.
@@ -227,22 +236,25 @@ document-qa-assistant/
 - [ ] Clicking a citation shows the exact passage text that was cited.
 - [ ] `npm run typecheck && npm run lint && npm run build` pass.
 - [ ] `make e2e` passes headless locally from a clean DB.
+- [ ] The `e2e` CI job is green on push, needs no secrets, and makes no network calls to any LLM.
 
 ### Milestone 5 — Evaluation
 
 **Tasks**
-1. Dataset schema (`id`, `category`, `question`, `gold_answer`, `numeric_value` + `unit` where applicable, `company`, `fiscal_year`, `source_doc`, `source_section`, `source_quote`, `answerable`).
-2. Author 50 questions: ~12 factual lookups, ~12 table numbers, ~8 year-over-year, ~8 cross-company, ~10 unanswerable.
-3. Quote verifier: every `source_quote` must appear (whitespace-normalized) in the parsed filing text; gold chunk IDs derived from the quote for each index config.
-4. Retrieval eval (no LLM): recall@5, recall@10, MRR, overall and per category.
-5. Ablations (no LLM): chunk size {256, 512, 1024}, table-aware vs naive, vector vs keyword vs hybrid, rerank on vs off.
-6. Generation eval on the final config: numeric correctness (parse numbers, normalize units/scale, tolerance), citation correctness (cited chunk contains the gold quote), refusal accuracy (precision/recall on unanswerables), faithfulness by a judge model different from the answering model (asserted at startup).
-7. Budget + resume: JSONL checkpoint per run keyed by (question id, config hash); daily request/token budget; spacing between calls; graceful stop with "resume tomorrow" message.
-8. Human check: export 20 judged answers to markdown with agree/disagree checkboxes; parser computes judge-human agreement rate (and Cohen's kappa).
-9. Reports: timestamped markdown + JSON in `evals/reports/`.
+1. Dataset schema (`id`, `category`, `question`, `gold_answer`, `numeric_value` + `unit` + `xbrl_concept` where applicable, `company`, `fiscal_year`, `source_doc`, `source_section`, `source_quote`, `answerable`).
+2. Author 50 questions: ~12 factual lookups, ~12 table numbers, ~8 year-over-year, ~8 cross-company, ~10 unanswerable. Fiscal years differ by company (see Milestone 2), so cross-company questions only use fiscal years that all compared companies have filed.
+3. XBRL cross-check: for numeric questions, record the XBRL concept (e.g. `us-gaap:Revenues`), and `make eval-xbrl` compares `numeric_value` against SEC's `companyfacts` API for the matching fiscal period (cached locally, same user agent + rate limiter). Mismatches must be fixed or given a documented reason, e.g. the filing reports a segment figure that XBRL tags differently.
+4. Quote verifier: every `source_quote` must appear (whitespace-normalized) in the parsed filing text; gold chunk IDs derived from the quote for each index config.
+5. Retrieval eval (no LLM): recall@5, recall@10, MRR, overall and per category.
+6. Ablations (no LLM): chunk size {256, 512, 1024}, table-aware vs naive, vector vs keyword vs hybrid, rerank on vs off.
+7. Generation eval on the final config: numeric correctness (parse numbers, normalize units/scale, tolerance), citation correctness (cited chunk contains the gold quote), refusal accuracy (precision/recall on unanswerables), faithfulness by a judge model different from the answering model (asserted at startup).
+8. Budget + resume: JSONL checkpoint per run keyed by (question id, config hash); separate daily request/token budgets per model (answer and judge), plus a tokens-per-minute limit; spacing between calls; retry on 429 honoring `retry-after`; graceful stop with "resume tomorrow" message.
+9. Human check: export 20 judged answers to markdown with agree/disagree checkboxes; parser computes judge-human agreement rate (and Cohen's kappa).
+10. Reports: timestamped markdown + JSON in `evals/reports/`.
 
 **Done when**
 - [ ] `make eval-verify` confirms all 50 source quotes exist in the filings.
+- [ ] `make eval-xbrl` reports zero unexplained mismatches between numeric gold answers and SEC XBRL data.
 - [ ] `make eval-retrieval` and `make eval-ablations` produce reports with no network calls to any LLM.
 - [ ] `make eval-generate` can be interrupted and resumed without repeating completed items, and stops cleanly when the budget is reached.
 - [ ] Judge model ≠ answer model is enforced.
@@ -278,13 +290,17 @@ document-qa-assistant/
 
 ---
 
-## 4. Questions and suggested changes
+## 4. Decisions (resolved 2026-11-17)
 
-1. **Companies and years.** Proposed: Apple, Microsoft, Amazon, JPMorgan Chase, Johnson & Johnson (tech, retail/cloud, bank, healthcare — different statement layouts make for better cross-company questions), fiscal years 2023–2025, pinned in `data/companies.yaml` for reproducibility. OK, or different picks?
-2. **Groq model names.** Defaults are `llama-3.3-70b-versatile` (answers) and `openai/gpt-oss-120b` (judge). Groq's catalog changes; I'll verify both are available and on the free tier before Milestone 3.
-3. **E2E in CI.** The spec's CI list omits Playwright. Suggest adding it as a separate CI job using the fake LLM (slower, but proves the full flow).
-4. **PDF library.** Suggest pdfplumber/pypdf rather than PyMuPDF, which is AGPL — awkward for a public portfolio repo.
-5. **Gold numbers cross-check.** Suggest optionally validating numeric gold answers against SEC's XBRL `companyfacts` API to catch transcription mistakes in the dataset.
-6. **Full stack in Docker vs. infra only.** Plan runs everything in Compose for one-command setup, but day-to-day dev runs API/worker/frontend on the host (faster reload, less RAM). Compose services will have memory limits.
-7. **Shared filings library.** Rather than every user re-ingesting the 15 filings, they're ingested once into a read-only library that workspaces can attach. Uploaded PDFs stay private to their workspace.
-8. **Rate-limit defaults.** 5 questions/minute and 100/day per user; adjust if you prefer.
+1. **Companies and years.** Apple, Microsoft, Amazon, JPMorgan Chase, Johnson & Johnson. Use the three most recent fiscal years with an original 10-K on EDGAR, resolved once and pinned in `data/filings.lock.json`. Fiscal years therefore differ by company (Apple and Microsoft include FY2026).
+2. **Groq models.** `llama-3.3-70b-versatile` returns `model_not_found` on the free key, and it is missing from Groq's published rate-limit table. Chosen instead, both on that table:
+   - Answer: `openai/gpt-oss-120b` (production model).
+   - Judge: `qwen/qwen3.8-27b` (different model family, so the judge is less likely to favor its own style of answer). It is a *preview* model and may be removed at short notice, so the fallback judge is `openai/gpt-oss-20b` (production, but the same family as the answer model).
+   - Published Developer-plan limits for each model are 30 RPM, 1K RPD, 8K TPM, and 200K TPD. Free-tier limits may be lower. `docqa check-llm` (Milestone 3, task 0) checks both models with the real key and records the actual limits before any generation work.
+   - At 8K tokens per minute, each RAG call should stay around 4–5K tokens (6 reranked passages of ≤512 tokens plus the answer), so evals run about 1–2 questions per minute. The full 50-question generation eval fits within one day's budget per model.
+3. **E2E in CI.** Yes, as a separate `e2e` job using the fake LLM (Milestone 4).
+4. **PDF library.** pdfplumber.
+5. **XBRL check.** Yes, numeric gold answers are cross-checked against SEC `companyfacts` (Milestone 5).
+6. **Filings library.** A shared read-only library ingested once and attachable to any workspace. Uploaded PDFs stay private to their workspace.
+7. **Docker.** Full stack in Compose with memory limits for one-command setup. Day-to-day development runs API, worker, and frontend on the host.
+8. **Rate limits.** 5 questions per minute and 100 per day, per user.
