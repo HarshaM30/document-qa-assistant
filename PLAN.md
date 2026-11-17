@@ -241,7 +241,7 @@ document-qa-assistant/
 - [x] Clicking a citation shows the exact passage text that was cited.
 - [x] `npm run typecheck && npm run lint && npm run build` pass.
 - [x] `make e2e` passes headless locally from a clean DB.
-- [ ] The `e2e` CI job is green on push, needs no secrets, and makes no network calls to any LLM.
+- [x] The `e2e` CI job is green on push, needs no secrets, and makes no network calls to any LLM.
 
 ### Milestone 5 — Evaluation
 
