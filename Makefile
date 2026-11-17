@@ -6,7 +6,8 @@ FRONTEND := npm --prefix frontend
 
 .DEFAULT_GOAL := help
 .PHONY: help setup up down deps migrate dev-api dev-worker dev-web \
-        lint typecheck fmt test-unit test-int test e2e
+        lint typecheck fmt test-unit test-int test e2e \
+        resolve-filings download ingest-filings
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -61,3 +62,12 @@ test: test-unit test-int ## All backend tests
 
 e2e: ## Playwright end-to-end tests (added in Milestone 4)
 	@echo "E2E tests arrive with the UI in Milestone 4." && exit 1
+
+resolve-filings: ## Look up the latest 10-Ks on EDGAR and rewrite data/filings.lock.json
+	$(BACKEND) docqa download-edgar --resolve
+
+download: ## Download exactly the locked 10-K filings into data/raw and verify SHA-256s
+	$(BACKEND) docqa download-edgar
+
+ingest-filings: deps ## Parse, chunk, embed and index the downloaded 10-Ks into the shared library
+	$(BACKEND) docqa ingest-filings

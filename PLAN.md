@@ -40,11 +40,14 @@ document-qa-assistant/
 │   │   ├── schemas/              # Pydantic v2 request/response models
 │   │   ├── ingestion/
 │   │   │   ├── edgar.py          # EDGAR client: user agent, rate limiter, retries
-│   │   │   ├── html_10k.py       # 10-K HTML → Items (sections) + tables
+│   │   │   ├── html_blocks.py    # (inline-XBRL) HTML → ordered text/table blocks with page numbers
+│   │   │   ├── html_10k.py       # blocks → Items (sections); handles incorporated-by-reference Items
 │   │   │   ├── tables.py         # table → labelled text ("Row | Column: value")
 │   │   │   ├── pdf.py            # pdfplumber: PDF → pages (+ tables where detectable)
 │   │   │   ├── chunking.py       # section/table-aware and naive chunkers
 │   │   │   ├── embedding.py      # fastembed wrapper (lazy-loaded, batched)
+│   │   │   ├── parsed.py         # parser output types shared by HTML and PDF
+│   │   │   ├── library.py        # ingest the locked filings into the shared library
 │   │   │   └── pipeline.py       # parse → chunk → embed → store, with progress
 │   │   ├── retrieval/
 │   │   │   ├── vector.py         # pgvector cosine search (HNSW)
@@ -60,7 +63,7 @@ document-qa-assistant/
 │   │   │   ├── citations.py      # parse [n] markers → chunk/section/page refs
 │   │   │   └── refusal.py        # pre-generation gate + refusal detection
 │   │   ├── ratelimit.py          # Redis sliding-window limiter
-│   │   ├── storage.py            # upload file storage (local disk)
+│   │   ├── storage.py            # upload file storage (local disk), size + magic-byte checks
 │   │   ├── worker/
 │   │   │   ├── settings.py       # arq WorkerSettings
 │   │   │   └── tasks.py          # ingest_document task with retry/backoff
@@ -142,7 +145,7 @@ document-qa-assistant/
 | Fake LLM | LiteLLM custom provider `fake/…` that returns a deterministic extractive answer from the top passages with `[n]` markers, or the refusal sentence | Streams like a real model; tests and CI need no network or key |
 | Queue | arq on Redis; job state mirrored in an `ingestion_jobs` table (status, stage, progress %, attempts, error) | UI polls Postgres state; retries with exponential backoff |
 | Rate limit | Redis sliding window per user (per-minute and per-day) on `/ask`; returns 429 with `Retry-After` | Protects the free-tier LLM quota |
-| Ablation indexes | `chunks` table carries an `index_config` key; ablation variants are built into the same table under different keys in an eval-only workspace | No schema churn per experiment; embedding dim stays fixed |
+| Ablation indexes | `chunks` table carries an `index_config` key (e.g. `section-512-64`, `naive-256-32`); ablation variants are built into the same table under different keys in an eval-only workspace | No schema churn per experiment; embedding dim stays fixed |
 
 ---
 
@@ -167,7 +170,7 @@ document-qa-assistant/
 - [x] `make migrate` applies cleanly to an empty DB and `alembic downgrade base` reverses it.
 - [x] Integration tests cover: signup → login → `/auth/me` → logout → `/auth/me` returns 401; duplicate email rejected; wrong password rejected; user A cannot read user B's workspace (404).
 - [x] Password hashes are argon2id; session cookie is `HttpOnly`, `SameSite=Lax`, `Secure` when configured.
-- [ ] `make lint typecheck test-unit test-int` passes locally; CI is green on push.
+- [x] `make lint typecheck test-unit test-int` passes locally; CI is green on push.
 - [x] No service binds 5432, 5433, or 6379.
 
 ### Milestone 2 — Ingestion
@@ -175,25 +178,25 @@ document-qa-assistant/
 **Tasks**
 1. `data/companies.yaml`: Apple (AAPL), Microsoft (MSFT), Amazon (AMZN), JPMorgan Chase (JPM), Johnson & Johnson (JNJ), with CIKs.
 2. EDGAR downloader (`docqa download-edgar`): `--resolve` reads `data.sec.gov/submissions/CIK##########.json`, picks the 3 most recent original 10-K filings per company (form `10-K`, not `10-K/A`), and writes `data/filings.lock.json` (ticker, fiscal year end, accession number, primary document URL, filing date). Without `--resolve` it downloads exactly what the lockfile lists. Expected as of Nov 2026: Apple and Microsoft FY2024–FY2026 (Sept/June year-ends), Amazon, JPMorgan, and J&J FY2023–FY2025 (calendar year-ends). It downloads each primary 10-K document, sends `SEC_USER_AGENT`, token-bucket limited to `SEC_MAX_REQUESTS_PER_SECOND` (< SEC's 10 req/s), retries on 429/5xx with backoff, skips files already present, writes a manifest with SHA-256s. Refuses to run if `SEC_USER_AGENT` is unset or still the placeholder.
-3. 10-K HTML parser: strip inline XBRL wrappers, detect `Item 1`, `1A`, `7`, `7A`, `8`, … headings (skipping the table of contents), produce sections with ordered text blocks and tables.
+3. 10-K HTML parser: strip inline XBRL wrappers, detect `Item 1`, `1A`, `7`, `7A`, `8`, … headings (skipping the table of contents), produce sections with ordered text blocks and tables. Headings are chosen as the heaviest chain of candidates in canonical Item order, so TOC entries and cross-references lose to real headings; repeated running headers/footers are dropped. Where an Item is only a stub pointing to later pages (JPMorgan's Items 7 and 8), the titled annual-report section is merged into that Item.
 4. Table-to-text: resolve header rows (including multi-row/colspan headers), merge split `$`/`%`/parenthesis cells, emit `Row | Column: value` lines; keep caption and units ("in millions").
 5. PDF parser using pdfplumber, producing per-page text (and tables via `extract_tables`, rendered with the same table-to-text format); pages are the citation unit.
 6. Chunkers: section-aware (respects section boundaries, tables as standalone chunks, token-based size + overlap using the embedding model's tokenizer) and a naive fixed-size chunker for ablations.
 7. Embedding wrapper: lazy model load, batching, configurable cache dir.
-8. Upload endpoint: PDF only, size limit, MIME + magic-byte check, stores file, creates `Document` + `IngestionJob`, enqueues arq job.
-9. Worker task: stages `parsing → chunking → embedding → indexing → done`, progress % persisted, retries with exponential backoff up to `INGEST_MAX_RETRIES`, final failure recorded with a user-readable error.
-10. `docqa ingest-filings`: ingests the downloaded 10-Ks into a shared "SEC filings" library a user can attach to a workspace.
+8. Upload endpoint: PDF only, size limit, MIME + magic-byte check, stores file, creates `Document` + `IngestionJob`, enqueues arq job. Also: list, delete, retry a failed upload, and library attach/detach (`POST /workspaces/{id}/library`, `DELETE /workspaces/{id}/library/{doc}`).
+9. Worker task: stages `parsing → chunking → embedding → indexing → done`, progress % and per-stage seconds persisted, retries with exponential backoff (`INGEST_RETRY_BASE_DELAY_SECONDS` × 2ⁿ) up to `INGEST_MAX_RETRIES` retries, final failure recorded with a user-readable error. Unreadable files (corrupt, encrypted, image-only PDFs) fail immediately, since retrying can't help.
+10. `docqa ingest-filings` (`make ingest-filings`): ingests the downloaded 10-Ks into a shared "SEC filings" library a user can attach to a workspace. Runs in-process (not via the worker); already-ingested filings are skipped unless `--force`.
 11. Document status endpoint (polled by UI).
 
 **Done when**
-- [ ] `filings.lock.json` is committed with 15 entries (3 per company, no amendments), and its fiscal years match the most recent 10-Ks on EDGAR as of resolution date.
-- [ ] `make download` fetches exactly the 15 locked filings into `data/raw/` and verifies their SHA-256s; re-running downloads nothing new; logs show the user agent and request rate stays under the limit.
-- [ ] Parser unit tests on a fixture excerpt: correct Item boundaries, TOC entries ignored, a known table rendered with row and column labels and units intact.
-- [ ] Every one of the 15 filings parses with Items 1, 1A, 7, and 8 detected (asserted by a test over `data/raw` that is skipped when data is absent).
-- [ ] Uploading a sample PDF produces chunks with correct page numbers; status moves through all stages to `done`.
-- [ ] A forced failure is retried N times then marked `failed` with an error message visible via the API.
-- [ ] Non-PDF and oversized uploads are rejected with 4xx.
-- [ ] Ingestion throughput (pages/min) is logged per job.
+- [x] `filings.lock.json` is committed with 15 entries (3 per company, no amendments), and its fiscal years match the most recent 10-Ks on EDGAR as of resolution date.
+- [x] `make download` fetches exactly the 15 locked filings into `data/raw/` and verifies their SHA-256s; re-running downloads nothing new; logs show the user agent and request rate stays under the limit.
+- [x] Parser unit tests on a fixture excerpt: correct Item boundaries, TOC entries ignored, a known table rendered with row and column labels and units intact.
+- [x] Every one of the 15 filings parses with Items 1, 1A, 7, and 8 detected (asserted by a test over `data/raw` that is skipped when data is absent).
+- [x] Uploading a sample PDF produces chunks with correct page numbers; status moves through all stages to `done`.
+- [x] A forced failure is retried N times then marked `failed` with an error message visible via the API.
+- [x] Non-PDF and oversized uploads are rejected with 4xx.
+- [x] Ingestion throughput (pages/min) is logged per job.
 
 ### Milestone 3 — Retrieval and generation
 

@@ -19,7 +19,10 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
-RUN useradd --create-home --uid 1000 app && mkdir -p /app/data /app/.cache && chown -R app /app
+# Volume mount points must exist (owned by app) so Docker initialises named volumes writable.
+RUN useradd --create-home --uid 1000 app \
+    && mkdir -p /app/data/uploads /app/.cache/fastembed \
+    && chown -R app /app
 USER app
 
 ENV PATH="/app/backend/.venv/bin:$PATH"

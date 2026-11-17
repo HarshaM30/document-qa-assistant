@@ -6,12 +6,14 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
 from docqa import __version__
-from docqa.api import health, workspaces
+from docqa.api import documents, health, workspaces
 from docqa.auth import router as auth_router
 from docqa.auth.deps import CSRF_HEADER, csrf_protect
 from docqa.config import Settings, get_settings
@@ -29,9 +31,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
         app.state.redis = redis
+        app.state.arq = await create_pool(RedisSettings.from_dsn(settings.redis_url))
         try:
             yield
         finally:
+            await app.state.arq.aclose()
             await redis.aclose()
             await engine.dispose()
 
@@ -54,4 +58,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth_router.router)
     app.include_router(workspaces.router)
+    app.include_router(documents.router)
     return app

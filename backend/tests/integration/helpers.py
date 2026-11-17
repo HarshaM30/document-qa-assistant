@@ -29,3 +29,46 @@ async def create_workspace(client: AsyncClient, name: str = "Research") -> dict[
     assert resp.status_code == 201, resp.text
     body: dict[str, Any] = resp.json()
     return body
+
+
+FIXTURES = __import__("pathlib").Path(__file__).parents[1] / "fixtures"
+SAMPLE_PDF = FIXTURES / "sample_report.pdf"
+
+
+async def upload_pdf(
+    client: AsyncClient,
+    workspace_id: str,
+    content: bytes | None = None,
+    filename: str = "sample_report.pdf",
+    content_type: str = "application/pdf",
+) -> Any:
+    data = SAMPLE_PDF.read_bytes() if content is None else content
+    return await client.post(
+        f"/workspaces/{workspace_id}/documents",
+        files={"file": (filename, data, content_type)},
+    )
+
+
+async def run_worker(settings: Any) -> None:
+    """Drain the arq queue in-process (burst mode), including any retries."""
+    from arq.connections import RedisSettings
+    from arq.worker import Worker
+
+    from docqa.worker.settings import worker_functions
+    from docqa.worker.tasks import shutdown, startup
+
+    worker = Worker(
+        functions=worker_functions(settings),
+        redis_settings=RedisSettings.from_dsn(settings.redis_url),
+        burst=True,
+        poll_delay=0.05,
+        max_jobs=1,
+        handle_signals=False,
+        on_startup=startup,
+        on_shutdown=shutdown,
+        ctx={"settings": settings},
+    )
+    try:
+        await worker.main()
+    finally:
+        await worker.close()
