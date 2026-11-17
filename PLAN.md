@@ -36,7 +36,7 @@ document-qa-assistant/
 │   │   │   ├── health.py         # /health (db + redis + model readiness)
 │   │   │   ├── workspaces.py
 │   │   │   ├── documents.py      # upload, list, status, delete, passage lookup
-│   │   │   └── chat.py           # POST /ask → SSE stream
+│   │   │   └── chat.py           # POST /workspaces/{id}/ask → SSE stream
 │   │   ├── schemas/              # Pydantic v2 request/response models
 │   │   ├── ingestion/
 │   │   │   ├── edgar.py          # EDGAR client: user agent, rate limiter, retries
@@ -50,8 +50,9 @@ document-qa-assistant/
 │   │   │   ├── library.py        # ingest the locked filings into the shared library
 │   │   │   └── pipeline.py       # parse → chunk → embed → store, with progress
 │   │   ├── retrieval/
+│   │   │   ├── scope.py          # tenancy: chunks visible to a workspace (uploads + attached library)
 │   │   │   ├── vector.py         # pgvector cosine search (HNSW)
-│   │   │   ├── keyword.py        # Postgres FTS (tsvector + websearch_to_tsquery)
+│   │   │   ├── keyword.py        # Postgres FTS (tsvector + websearch_to_tsquery, terms OR-ed)
 │   │   │   ├── fusion.py         # reciprocal rank fusion
 │   │   │   ├── rerank.py         # fastembed cross-encoder
 │   │   │   └── retriever.py      # configurable pipeline (used by API and evals)
@@ -132,19 +133,19 @@ document-qa-assistant/
 | CSRF | SameSite=Lax + require `X-Requested-With` header on state-changing requests + strict CORS origin | Simple and sufficient for a same-site SPA |
 | Tenancy | Every document/chunk query is scoped by `workspace_id`, and workspace ownership is checked against the session user | Users only ever see their own data; enforced in one retrieval function and tested |
 | Embeddings | `BAAI/bge-small-en-v1.5` (384-d) via fastembed | Small, fast on CPU, good retrieval quality |
-| Reranker | `Xenova/ms-marco-MiniLM-L-6-v2` via fastembed `TextCrossEncoder` | ONNX, no PyTorch, ~90 MB |
+| Reranker | `Xenova/ms-marco-MiniLM-L-6-v2` via fastembed `TextCrossEncoder`, batch size 4 | ONNX, no PyTorch, ~90 MB. Batches of 16 push the API past 1 GB at peak; batches of 4 peak around 720 MB with the embedder loaded, at the same speed (~0.7 s for 30 passages) |
 | Vector index | pgvector HNSW, cosine | Good recall/latency without tuning lists |
-| Keyword search | Generated `tsvector` column + GIN index, `websearch_to_tsquery` | Native, no extra service |
-| Fusion | RRF with k=60 over top-30 vector + top-30 keyword | Standard, parameter-light |
+| Keyword search | Generated `tsvector` column + GIN index, `websearch_to_tsquery` over the question's terms joined with `or`, ranked by `ts_rank_cd` | Native, no extra service; plain `websearch_to_tsquery` ANDs every word, so a natural-language question rarely matches anything |
+| Fusion | RRF with k=60 over top-30 vector + top-30 keyword; the top 30 fused results go to the reranker | Standard, parameter-light |
 | Tables | Each table emitted as its own chunk, rendered as `Row label \| Column header: value` lines with the table caption and section prepended | Keeps numbers attached to their meaning; never split mid-row |
-| Citations | Prompt numbers context passages `[1]..[n]`; server maps markers to chunk → (document, Item/section or page) and sends a `citations` SSE event | Exact, verifiable sources; frontend fetches the passage on click |
-| Refusal | Two layers: (1) if best rerank score < threshold → refuse without calling the LLM; (2) prompt instructs a fixed refusal sentence, detected server-side | Saves LLM calls and makes refusal measurable |
+| Citations | Prompt numbers context passages `[1]..[n]`; server maps markers to chunk → (document, Item/section or page) and sends a `citations` SSE event. Lenticular/fullwidth brackets (`【3】`, which gpt-oss emits) are rewritten to `[3]` as tokens stream | Exact, verifiable sources; frontend fetches the passage on click |
+| Refusal | Two layers: (1) if retrieval finds nothing, or the best rerank score < `REFUSAL_MIN_RERANK_SCORE` → refuse without calling the LLM (with reranking off, only the empty case applies); (2) prompt instructs a fixed refusal sentence, detected server-side | Saves LLM calls and makes refusal measurable |
 | LLM models | Answer: `openai/gpt-oss-120b`; judge: `qwen/qwen3.8-27b` (fallback judge: `openai/gpt-oss-20b`). Both via LiteLLM `groq/` prefix | Must be on Groq's free tier and differ from each other; a judge from a different model family reduces self-preference bias. See section 4 |
 | PDF parsing | pdfplumber | MIT license; page-level text and table extraction |
 | Filing selection | For each company, the 3 most recent original 10-Ks on EDGAR (10-K/A excluded), resolved once and pinned in `data/filings.lock.json` | "Latest three" changes over time; the lockfile keeps the corpus and eval dataset reproducible |
 | Fake LLM | LiteLLM custom provider `fake/…` that returns a deterministic extractive answer from the top passages with `[n]` markers, or the refusal sentence | Streams like a real model; tests and CI need no network or key |
 | Queue | arq on Redis; job state mirrored in an `ingestion_jobs` table (status, stage, progress %, attempts, error) | UI polls Postgres state; retries with exponential backoff |
-| Rate limit | Redis sliding window per user (per-minute and per-day) on `/ask`; returns 429 with `Retry-After` | Protects the free-tier LLM quota |
+| Rate limit | Redis sliding window per user (per-minute and per-day) on `/ask`, checked and recorded atomically in one Lua script; rejected requests don't use quota; returns 429 with `Retry-After` | Protects the free-tier LLM quota |
 | Ablation indexes | `chunks` table carries an `index_config` key (e.g. `section-512-64`, `naive-256-32`); ablation variants are built into the same table under different keys in an eval-only workspace | No schema churn per experiment; embedding dim stays fixed |
 
 ---
@@ -206,19 +207,19 @@ document-qa-assistant/
 2. RRF fusion; cross-encoder rerank to top-N; all stages toggleable for ablations.
 3. LiteLLM factory from `LLM_PROVIDER`/`LLM_MODEL`; fake provider registered for `fake`. For reasoning models (gpt-oss), set low reasoning effort so hidden reasoning tokens don't use up the per-minute token limit.
 4. LangChain chain: retrieve → refusal gate → prompt with numbered passages → stream tokens.
-5. `/ask` SSE endpoint emitting `token`, `citations`, `refusal`, `done`, and `error` events; persists question, answer, and citations.
+5. `POST /workspaces/{id}/ask` SSE endpoint emitting `token`, `refusal`, `citations`, `done`, and `error` events; persists question, answer, and citations.
 6. Citation parsing and validation (drop markers that reference nonexistent passages).
-7. Passage endpoint: return a cited chunk's text + location, ownership-checked.
+7. Passage endpoint (`GET /workspaces/{id}/passages/{chunk_id}`): return a cited chunk's text + location, ownership-checked.
 8. Redis rate limiter on `/ask` (per-minute and per-day), 429 with `Retry-After`.
 
 **Done when**
-- [ ] `docqa check-llm` succeeds for both the answer and judge models with your key; their observed free-tier limits are written into this plan and used as the eval budget defaults.
-- [ ] Unit tests: RRF math on hand-built rankings; rerank reorders as expected; citation parser handles `[1]`, `[1][3]`, `[1, 3]`, and invalid markers.
-- [ ] Integration test (fake LLM): ask over fixture docs → SSE stream contains tokens, a `citations` event pointing to the right chunk, and `done`.
-- [ ] A question with no relevant context yields a `refusal` event and no LLM call (verified via fake-provider call counter).
-- [ ] Retrieval never returns chunks from another user's workspace (explicit test).
-- [ ] Exceeding the rate limit returns 429 with `Retry-After`; limit resets correctly.
-- [ ] With a real Groq key, a manual question over a 10-K streams a cited answer end-to-end.
+- [x] `docqa check-llm` succeeds for both the answer and judge models with your key; their observed free-tier limits are written into this plan and used as the eval budget defaults.
+- [x] Unit tests: RRF math on hand-built rankings; rerank reorders as expected; citation parser handles `[1]`, `[1][3]`, `[1, 3]`, and invalid markers.
+- [x] Integration test (fake LLM): ask over fixture docs → SSE stream contains tokens, a `citations` event pointing to the right chunk, and `done`.
+- [x] A question with no relevant context yields a `refusal` event and no LLM call (verified via fake-provider call counter).
+- [x] Retrieval never returns chunks from another user's workspace (explicit test).
+- [x] Exceeding the rate limit returns 429 with `Retry-After`; limit resets correctly.
+- [x] With a real Groq key, a manual question over a 10-K streams a cited answer end-to-end.
 
 ### Milestone 4 — Frontend
 
@@ -299,6 +300,7 @@ document-qa-assistant/
    - Answer: `openai/gpt-oss-120b` (production model).
    - Judge: `qwen/qwen3.8-27b` (different model family, so the judge is less likely to favor its own style of answer). It is a *preview* model and may be removed at short notice, so the fallback judge is `openai/gpt-oss-20b` (production, but the same family as the answer model).
    - Published Developer-plan limits for each model are 30 RPM, 1K RPD, 8K TPM, and 200K TPD. Free-tier limits may be lower. `docqa check-llm` (Milestone 3, task 0) checks both models with the real key and records the actual limits before any generation work.
+   - **Observed with the free key (2026-11-17, `make check-llm`):** both `openai/gpt-oss-120b` and `qwen/qwen3.8-27b` answer, so the primary judge stays. Groq's `x-ratelimit-*` headers report **1,000 requests/day** and **8,000 tokens/minute** for each model, the same as the published table. Tokens/day isn't in the headers, so the published 200K is assumed. The eval budget defaults in `.env.example` stay just under these limits: 900 requests/day, 180K tokens/day, 7K tokens/minute.
    - At 8K tokens per minute, each RAG call should stay around 4–5K tokens (6 reranked passages of ≤512 tokens plus the answer), so evals run about 1–2 questions per minute. The full 50-question generation eval fits within one day's budget per model.
 3. **E2E in CI.** Yes, as a separate `e2e` job using the fake LLM (Milestone 4).
 4. **PDF library.** pdfplumber.

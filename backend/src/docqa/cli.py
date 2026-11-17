@@ -132,5 +132,26 @@ def ingest_filings_cmd(
     asyncio.run(run())
 
 
+@app.command("check-llm")
+def check_llm() -> None:
+    """Send one tiny completion to the answer and judge models and print their rate limits."""
+    from docqa.generation.llm import answer_llm, judge_llm, probe
+
+    settings = get_settings()
+    failed = False
+    for role, spec in (("answer", answer_llm(settings)), ("judge", judge_llm(settings))):
+        typer.echo(f"{role}: {spec.litellm_model}")
+        result = probe(spec)
+        if result.error:
+            failed = True
+            typer.secho(f"  FAILED: {result.error}", fg=typer.colors.RED)
+            continue
+        typer.secho(f"  ok ({result.latency_ms} ms): {result.reply!r}", fg=typer.colors.GREEN)
+        for name, value in sorted(result.rate_limits.items()):
+            typer.echo(f"  {name}: {value}")
+    if failed:
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

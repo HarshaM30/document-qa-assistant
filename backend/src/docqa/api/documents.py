@@ -6,10 +6,10 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,13 +17,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from docqa.api.workspaces import get_owned_workspace
 from docqa.auth.deps import CurrentUser, DbDep, SettingsDep
 from docqa.db.models import (
+    Chunk,
     Document,
     DocumentStatus,
     IngestionJob,
     JobStatus,
+    Section,
     SourceType,
     WorkspaceLibraryDocument,
 )
+from docqa.ingestion.pipeline import document_label
+from docqa.retrieval.scope import document_visible_to
+from docqa.schemas.chat import PassageOut
 from docqa.schemas.documents import DocumentOut, JobOut, LibraryAttach
 from docqa.storage import (
     NotAPdfError,
@@ -59,20 +64,12 @@ def _out(doc: Document, job: IngestionJob | None) -> DocumentOut:
     return out
 
 
-def _visible_to(workspace_id: uuid.UUID) -> Any:
-    """Documents a workspace can see: its own uploads plus attached library filings."""
-    attached = select(WorkspaceLibraryDocument.document_id).where(
-        WorkspaceLibraryDocument.workspace_id == workspace_id
-    )
-    return or_(Document.workspace_id == workspace_id, Document.id.in_(attached))
-
-
 async def _get_visible_document(
     db: AsyncSession, workspace_id: uuid.UUID, document_id: uuid.UUID
 ) -> Document:
     doc = (
         await db.execute(
-            select(Document).where(Document.id == document_id, _visible_to(workspace_id))
+            select(Document).where(Document.id == document_id, document_visible_to(workspace_id))
         )
     ).scalar_one_or_none()
     if doc is None:
@@ -156,7 +153,7 @@ async def list_documents(
         (
             await db.execute(
                 select(Document)
-                .where(_visible_to(workspace_id))
+                .where(document_visible_to(workspace_id))
                 .order_by(Document.is_library, Document.created_at)
             )
         ).scalars()
@@ -217,6 +214,36 @@ async def delete_document(
     await db.delete(doc)
     await db.commit()
     await asyncio.to_thread(Path(path).unlink, missing_ok=True)
+
+
+@router.get("/workspaces/{workspace_id}/passages/{chunk_id}")
+async def get_passage(
+    workspace_id: uuid.UUID, chunk_id: uuid.UUID, user: CurrentUser, db: DbDep
+) -> PassageOut:
+    """The full text and location of a cited chunk, if the workspace can see its document."""
+    await get_owned_workspace(db, user, workspace_id)
+    row = (
+        await db.execute(
+            select(Chunk, Section, Document)
+            .join(Document, Document.id == Chunk.document_id)
+            .outerjoin(Section, Section.id == Chunk.section_id)
+            .where(Chunk.id == chunk_id, document_visible_to(workspace_id))
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Passage not found")
+    chunk, section, doc = row
+    return PassageOut(
+        chunk_id=chunk.id,
+        document_id=doc.id,
+        document_title=document_label(doc),
+        section_title=section.title if section else "",
+        item_code=section.item_code if section else None,
+        page_start=chunk.page_start,
+        page_end=chunk.page_end,
+        is_table=chunk.is_table,
+        text=chunk.text,
+    )
 
 
 # --- Shared filings library ----------------------------------------------------------------

@@ -7,7 +7,7 @@ FRONTEND := npm --prefix frontend
 .DEFAULT_GOAL := help
 .PHONY: help setup up down deps migrate dev-api dev-worker dev-web \
         lint typecheck fmt test-unit test-int test e2e \
-        resolve-filings download ingest-filings
+        resolve-filings download ingest-filings check-llm
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -71,3 +71,6 @@ download: ## Download exactly the locked 10-K filings into data/raw and verify S
 
 ingest-filings: deps ## Parse, chunk, embed and index the downloaded 10-Ks into the shared library
 	$(BACKEND) docqa ingest-filings
+
+check-llm: ## Send one tiny request to the answer and judge models; print their rate limits
+	$(BACKEND) docqa check-llm

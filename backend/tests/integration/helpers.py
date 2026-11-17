@@ -72,3 +72,28 @@ async def run_worker(settings: Any) -> None:
         await worker.main()
     finally:
         await worker.close()
+
+
+def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
+    """Split a text/event-stream body into (event, data) pairs."""
+    import json
+
+    events = []
+    for block in body.strip().split("\n\n"):
+        fields = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
+        events.append((fields["event"], json.loads(fields["data"])))
+    return events
+
+
+async def ask(client: AsyncClient, workspace_id: str, question: str) -> Any:
+    return await client.post(f"/workspaces/{workspace_id}/ask", json={"question": question})
+
+
+async def ingested_workspace(client: AsyncClient, settings: Any, email: str) -> dict[str, Any]:
+    """Sign up, create a workspace, upload the sample PDF, and run ingestion to completion."""
+    await signup(client, email)
+    workspace = await create_workspace(client, "Reports")
+    resp = await upload_pdf(client, workspace["id"])
+    assert resp.status_code == 202, resp.text
+    await run_worker(settings)
+    return workspace

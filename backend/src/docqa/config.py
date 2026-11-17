@@ -76,9 +76,12 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 64
     retrieval_vector_top_k: int = 30
     retrieval_keyword_top_k: int = 30
+    retrieval_ef_search: int = 100
     rrf_k: int = 60
+    retrieval_rerank_candidates: int = 30
     rerank_enabled: bool = True
     rerank_top_n: int = 6
+    rerank_batch_size: int = 4
     refusal_min_rerank_score: float = 0.0
 
     # --- Rate limiting ---

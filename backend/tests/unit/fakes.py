@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import re
+import uuid
+from typing import Any
+
+from docqa.retrieval.retriever import Passage
 
 _WORD = re.compile(r"\S+")
 
@@ -32,3 +36,22 @@ class WhitespaceTokenizer:
             if i + size >= len(spans):
                 break
         return out
+
+
+def make_passage(n: int, text: str = "", rerank_score: float | None = None, **kw: Any) -> Passage:
+    """A retrieved passage with deterministic ids, for generation tests."""
+    return Passage(
+        chunk_id=uuid.UUID(int=n),
+        document_id=uuid.UUID(int=1000 + n),
+        document_title=kw.pop("document_title", "Acme Corp 10-K FY2025"),
+        section_title=kw.pop("section_title", f"Item {n}"),
+        item_code=kw.pop("item_code", str(n)),
+        page_start=kw.pop("page_start", n),
+        page_end=kw.pop("page_end", n),
+        heading=kw.pop("heading", ""),
+        text=text or f"Passage number {n}.",
+        is_table=kw.pop("is_table", False),
+        fused_score=kw.pop("fused_score", 1.0 / n),
+        rerank_score=rerank_score,
+        **kw,
+    )
