@@ -1,0 +1,290 @@
+# Document Q&A Assistant — Implementation Plan
+
+A full-stack RAG app for asking plain-English questions about SEC 10-K filings and
+user-uploaded PDFs, with streamed, cited answers, principled refusals, and measured
+retrieval and answer quality.
+
+Local-only, memory-conscious, no paid services. Host ports: Postgres **5434**, Redis **6380**.
+
+---
+
+## 1. Folder structure
+
+```
+document-qa-assistant/
+├── backend/
+│   ├── pyproject.toml            # uv project; dependency groups: dev, eval, bench
+│   ├── uv.lock
+│   ├── Dockerfile                # API and worker share one image
+│   ├── alembic.ini
+│   ├── alembic/
+│   │   ├── env.py
+│   │   └── versions/
+│   ├── src/docqa/
+│   │   ├── main.py               # FastAPI app factory, middleware, routers
+│   │   ├── config.py             # pydantic-settings, reads .env
+│   │   ├── cli.py                # Typer CLI: download-edgar, ingest-filings, eval, etc.
+│   │   ├── db/
+│   │   │   ├── session.py        # async engine + session dependency
+│   │   │   └── models.py         # User, Session, Workspace, Document, Section, Chunk, IngestionJob, Question, Answer
+│   │   ├── auth/
+│   │   │   ├── passwords.py      # argon2id hashing
+│   │   │   ├── sessions.py       # opaque session tokens (hashed at rest), cookie helpers
+│   │   │   ├── deps.py           # current_user dependency, CSRF check
+│   │   │   └── router.py         # /auth/signup, /auth/login, /auth/logout, /auth/me
+│   │   ├── api/
+│   │   │   ├── health.py         # /health (db + redis + model readiness)
+│   │   │   ├── workspaces.py
+│   │   │   ├── documents.py      # upload, list, status, delete, passage lookup
+│   │   │   └── chat.py           # POST /ask → SSE stream
+│   │   ├── schemas/              # Pydantic v2 request/response models
+│   │   ├── ingestion/
+│   │   │   ├── edgar.py          # EDGAR client: user agent, rate limiter, retries
+│   │   │   ├── html_10k.py       # 10-K HTML → Items (sections) + tables
+│   │   │   ├── tables.py         # table → labelled text ("Row | Column: value")
+│   │   │   ├── pdf.py            # PDF → pages (+ tables where detectable)
+│   │   │   ├── chunking.py       # section/table-aware and naive chunkers
+│   │   │   ├── embedding.py      # fastembed wrapper (lazy-loaded, batched)
+│   │   │   └── pipeline.py       # parse → chunk → embed → store, with progress
+│   │   ├── retrieval/
+│   │   │   ├── vector.py         # pgvector cosine search (HNSW)
+│   │   │   ├── keyword.py        # Postgres FTS (tsvector + websearch_to_tsquery)
+│   │   │   ├── fusion.py         # reciprocal rank fusion
+│   │   │   ├── rerank.py         # fastembed cross-encoder
+│   │   │   └── retriever.py      # configurable pipeline (used by API and evals)
+│   │   ├── generation/
+│   │   │   ├── llm.py            # LiteLLM factory from env (provider + model)
+│   │   │   ├── fake_provider.py  # deterministic extractive provider for tests/CI
+│   │   │   ├── prompts.py
+│   │   │   ├── chain.py          # LangChain LCEL chain: retrieve → prompt → stream
+│   │   │   ├── citations.py      # parse [n] markers → chunk/section/page refs
+│   │   │   └── refusal.py        # pre-generation gate + refusal detection
+│   │   ├── ratelimit.py          # Redis sliding-window limiter
+│   │   ├── storage.py            # upload file storage (local disk)
+│   │   ├── worker/
+│   │   │   ├── settings.py       # arq WorkerSettings
+│   │   │   └── tasks.py          # ingest_document task with retry/backoff
+│   │   └── evals/                # eval code (data lives in /evals)
+│   │       ├── dataset.py        # schema + loader + quote verification
+│   │       ├── retrieval_eval.py # recall@k, MRR
+│   │       ├── ablations.py
+│   │       ├── generation_eval.py
+│   │       ├── judge.py
+│   │       ├── budget.py         # daily request/token budget + checkpointing
+│   │       └── human_check.py    # export + agreement report
+│   └── tests/
+│       ├── unit/
+│       ├── integration/          # real Postgres + Redis, fake LLM
+│       └── fixtures/             # tiny 10-K HTML excerpt, tiny PDF
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tailwind.config.ts
+│   ├── tsconfig.json
+│   ├── eslint.config.js
+│   ├── Dockerfile
+│   ├── src/
+│   │   ├── main.tsx, App.tsx, router.tsx
+│   │   ├── api/                  # typed fetch client + TanStack Query hooks
+│   │   ├── lib/sse.ts            # POST-based SSE stream reader
+│   │   ├── pages/                # Login, Signup, Workspaces, Documents, Chat
+│   │   └── components/           # UploadDropzone, IngestionStatus, ChatMessage, CitationPanel, ...
+│   └── e2e/
+│       ├── playwright.config.ts
+│       └── happy-path.spec.ts    # sign up → upload → ask → open citation
+├── evals/
+│   ├── datasets/
+│   │   ├── qa_v1.jsonl           # 50 questions with gold answers + source quotes
+│   │   └── CHANGELOG.md          # dataset versioning notes
+│   ├── configs/                  # ablation + final configs (YAML)
+│   ├── human_check/              # exported markdown for manual agree/disagree
+│   └── reports/                  # timestamped reports (committed)
+├── benchmarks/
+│   ├── locustfile.py
+│   ├── ingest_throughput.py
+│   └── results.md
+├── data/
+│   ├── companies.yaml            # pinned tickers/CIKs + fiscal years
+│   └── raw/                      # gitignored; reproduced by download script
+├── docs/
+│   └── demo.gif
+├── .github/workflows/ci.yml
+├── docker-compose.yml
+├── Makefile
+├── .env.example
+├── .gitignore
+├── PLAN.md
+└── README.md
+```
+
+---
+
+## 2. Key design decisions
+
+| Area | Decision | Why |
+|---|---|---|
+| Sessions | Opaque random token in an `HttpOnly`, `SameSite=Lax` cookie; SHA-256 of token stored in Postgres `sessions` table | Revocable logout, no JWT pitfalls, nothing sensitive client-side |
+| Passwords | argon2id (`argon2-cffi`) | Current OWASP recommendation |
+| CSRF | SameSite=Lax + require `X-Requested-With` header on state-changing requests + strict CORS origin | Simple and sufficient for a same-site SPA |
+| Tenancy | Every document/chunk query is scoped by `workspace_id`, and workspace ownership is checked against the session user | Users only ever see their own data; enforced in one retrieval function and tested |
+| Embeddings | `BAAI/bge-small-en-v1.5` (384-d) via fastembed | Small, fast on CPU, good retrieval quality |
+| Reranker | `Xenova/ms-marco-MiniLM-L-6-v2` via fastembed `TextCrossEncoder` | ONNX, no PyTorch, ~90 MB |
+| Vector index | pgvector HNSW, cosine | Good recall/latency without tuning lists |
+| Keyword search | Generated `tsvector` column + GIN index, `websearch_to_tsquery` | Native, no extra service |
+| Fusion | RRF with k=60 over top-30 vector + top-30 keyword | Standard, parameter-light |
+| Tables | Each table emitted as its own chunk, rendered as `Row label \| Column header: value` lines with the table caption and section prepended | Keeps numbers attached to their meaning; never split mid-row |
+| Citations | Prompt numbers context passages `[1]..[n]`; server maps markers to chunk → (document, Item/section or page) and sends a `citations` SSE event | Exact, verifiable sources; frontend fetches the passage on click |
+| Refusal | Two layers: (1) if best rerank score < threshold → refuse without calling the LLM; (2) prompt instructs a fixed refusal sentence, detected server-side | Saves LLM calls and makes refusal measurable |
+| Fake LLM | LiteLLM custom provider `fake/…` that returns a deterministic extractive answer from the top passages with `[n]` markers, or the refusal sentence | Streams like a real model; tests and CI need no network or key |
+| Queue | arq on Redis; job state mirrored in an `ingestion_jobs` table (status, stage, progress %, attempts, error) | UI polls Postgres state; retries with exponential backoff |
+| Rate limit | Redis sliding window per user (per-minute and per-day) on `/ask`; returns 429 with `Retry-After` | Protects the free-tier LLM quota |
+| Ablation indexes | `chunks` table carries an `index_config` key; ablation variants are built into the same table under different keys in an eval-only workspace | No schema churn per experiment; embedding dim stays fixed |
+
+---
+
+## 3. Milestones
+
+### Milestone 1 — Scaffold
+
+**Tasks**
+1. `backend/`: `uv init`, Python 3.12, deps (FastAPI, uvicorn, SQLAlchemy 2 async + asyncpg, Alembic, Pydantic v2, pydantic-settings, argon2-cffi, redis, arq). Dev group: pytest, pytest-asyncio, httpx, ruff, mypy.
+2. `config.py` with typed settings for every variable in `.env.example`.
+3. `docker-compose.yml`: `pgvector/pgvector:pg16` on host 5434, `redis:7-alpine` on host 6380, `api`, `worker`, `frontend` services; healthchecks; named volumes; memory limits.
+4. SQLAlchemy models for all tables; initial Alembic migration enabling `vector` extension, HNSW and GIN indexes.
+5. Auth: signup, login, logout, `/auth/me`; argon2id; session table; cookie settings from env; CSRF header check.
+6. Workspaces CRUD scoped to the current user.
+7. `/health` reporting DB, Redis, and status.
+8. `frontend/`: Vite + React + TS, Tailwind, TanStack Query, React Router, ESLint; placeholder pages.
+9. `Makefile`: `setup`, `up`, `down`, `migrate`, `dev-api`, `dev-worker`, `dev-web`, `lint`, `typecheck`, `test-unit`, `test-int`, `e2e`, `fmt`.
+10. GitHub Actions CI: ruff, mypy, unit tests, integration tests (pgvector + Redis service containers), frontend `tsc --noEmit`, ESLint, `vite build`. Cache uv, npm.
+
+**Done when**
+- [ ] `make setup && make up` brings up Postgres, Redis, API, worker, and frontend; `curl localhost:8000/health` returns all-green.
+- [ ] `make migrate` applies cleanly to an empty DB and `alembic downgrade base` reverses it.
+- [ ] Integration tests cover: signup → login → `/auth/me` → logout → `/auth/me` returns 401; duplicate email rejected; wrong password rejected; user A cannot read user B's workspace (404).
+- [ ] Password hashes are argon2id; session cookie is `HttpOnly`, `SameSite=Lax`, `Secure` when configured.
+- [ ] `make lint typecheck test-unit test-int` passes locally; CI is green on push.
+- [ ] No service binds 5432, 5433, or 6379.
+
+### Milestone 2 — Ingestion
+
+**Tasks**
+1. `data/companies.yaml`: 5 companies (ticker, CIK) and 3 fiscal years.
+2. EDGAR downloader (`docqa download-edgar`): resolves filings via `data.sec.gov/submissions/CIK##########.json`, downloads the primary 10-K document, sends `SEC_USER_AGENT`, token-bucket limited to `SEC_MAX_REQUESTS_PER_SECOND` (< SEC's 10 req/s), retries on 429/5xx with backoff, skips files already present, writes a manifest with SHA-256s. Refuses to run if `SEC_USER_AGENT` is unset or still the placeholder.
+3. 10-K HTML parser: strip inline XBRL wrappers, detect `Item 1`, `1A`, `7`, `7A`, `8`, … headings (skipping the table of contents), produce sections with ordered text blocks and tables.
+4. Table-to-text: resolve header rows (including multi-row/colspan headers), merge split `$`/`%`/parenthesis cells, emit `Row | Column: value` lines; keep caption and units ("in millions").
+5. PDF parser (pypdf or pdfplumber) producing per-page text; pages are the citation unit.
+6. Chunkers: section-aware (respects section boundaries, tables as standalone chunks, token-based size + overlap using the embedding model's tokenizer) and a naive fixed-size chunker for ablations.
+7. Embedding wrapper: lazy model load, batching, configurable cache dir.
+8. Upload endpoint: PDF only, size limit, MIME + magic-byte check, stores file, creates `Document` + `IngestionJob`, enqueues arq job.
+9. Worker task: stages `parsing → chunking → embedding → indexing → done`, progress % persisted, retries with exponential backoff up to `INGEST_MAX_RETRIES`, final failure recorded with a user-readable error.
+10. `docqa ingest-filings`: ingests the downloaded 10-Ks into a shared "SEC filings" library a user can attach to a workspace.
+11. Document status endpoint (polled by UI).
+
+**Done when**
+- [ ] `make download` fetches exactly 15 filings into `data/raw/`; re-running downloads nothing new; logs show the user agent and request rate stays under the limit.
+- [ ] Parser unit tests on a fixture excerpt: correct Item boundaries, TOC entries ignored, a known table rendered with row and column labels and units intact.
+- [ ] Every one of the 15 filings parses with Items 1, 1A, 7, and 8 detected (asserted by a test over `data/raw` that is skipped when data is absent).
+- [ ] Uploading a sample PDF produces chunks with correct page numbers; status moves through all stages to `done`.
+- [ ] A forced failure is retried N times then marked `failed` with an error message visible via the API.
+- [ ] Non-PDF and oversized uploads are rejected with 4xx.
+- [ ] Ingestion throughput (pages/min) is logged per job.
+
+### Milestone 3 — Retrieval and generation
+
+**Tasks**
+1. Vector search (cosine, HNSW, `ef_search` configurable) and keyword search (FTS), both scoped by workspace.
+2. RRF fusion; cross-encoder rerank to top-N; all stages toggleable for ablations.
+3. LiteLLM factory from `LLM_PROVIDER`/`LLM_MODEL`; fake provider registered for `fake`.
+4. LangChain chain: retrieve → refusal gate → prompt with numbered passages → stream tokens.
+5. `/ask` SSE endpoint emitting `token`, `citations`, `refusal`, `done`, and `error` events; persists question, answer, and citations.
+6. Citation parsing and validation (drop markers that reference nonexistent passages).
+7. Passage endpoint: return a cited chunk's text + location, ownership-checked.
+8. Redis rate limiter on `/ask` (per-minute and per-day), 429 with `Retry-After`.
+
+**Done when**
+- [ ] Unit tests: RRF math on hand-built rankings; rerank reorders as expected; citation parser handles `[1]`, `[1][3]`, `[1, 3]`, and invalid markers.
+- [ ] Integration test (fake LLM): ask over fixture docs → SSE stream contains tokens, a `citations` event pointing to the right chunk, and `done`.
+- [ ] A question with no relevant context yields a `refusal` event and no LLM call (verified via fake-provider call counter).
+- [ ] Retrieval never returns chunks from another user's workspace (explicit test).
+- [ ] Exceeding the rate limit returns 429 with `Retry-After`; limit resets correctly.
+- [ ] With a real Groq key, a manual question over a 10-K streams a cited answer end-to-end.
+
+### Milestone 4 — Frontend
+
+**Tasks**
+1. Typed API client with cookie credentials and CSRF header; TanStack Query hooks; auth-guarded routes.
+2. Sign up / log in pages with validation and error states.
+3. Workspaces page: list, create, rename, delete.
+4. Documents page: drag-and-drop upload, per-document status with progress bar, error + retry display; attach SEC filings library.
+5. Chat page: POST-based SSE reader, streaming render, stop button, refusal styling, rate-limit message.
+6. Citation chips → side panel showing source passage, document name, and Item/section or page.
+7. Playwright E2E with the fake LLM: sign up → create workspace → upload fixture PDF → wait for `done` → ask → click citation → passage visible.
+
+**Done when**
+- [ ] All pages work against the real backend; refresh preserves the session.
+- [ ] Streaming is visibly incremental; partial answers survive network errors with an error notice.
+- [ ] Clicking a citation shows the exact passage text that was cited.
+- [ ] `npm run typecheck && npm run lint && npm run build` pass.
+- [ ] `make e2e` passes headless locally from a clean DB.
+
+### Milestone 5 — Evaluation
+
+**Tasks**
+1. Dataset schema (`id`, `category`, `question`, `gold_answer`, `numeric_value` + `unit` where applicable, `company`, `fiscal_year`, `source_doc`, `source_section`, `source_quote`, `answerable`).
+2. Author 50 questions: ~12 factual lookups, ~12 table numbers, ~8 year-over-year, ~8 cross-company, ~10 unanswerable.
+3. Quote verifier: every `source_quote` must appear (whitespace-normalized) in the parsed filing text; gold chunk IDs derived from the quote for each index config.
+4. Retrieval eval (no LLM): recall@5, recall@10, MRR, overall and per category.
+5. Ablations (no LLM): chunk size {256, 512, 1024}, table-aware vs naive, vector vs keyword vs hybrid, rerank on vs off.
+6. Generation eval on the final config: numeric correctness (parse numbers, normalize units/scale, tolerance), citation correctness (cited chunk contains the gold quote), refusal accuracy (precision/recall on unanswerables), faithfulness by a judge model different from the answering model (asserted at startup).
+7. Budget + resume: JSONL checkpoint per run keyed by (question id, config hash); daily request/token budget; spacing between calls; graceful stop with "resume tomorrow" message.
+8. Human check: export 20 judged answers to markdown with agree/disagree checkboxes; parser computes judge-human agreement rate (and Cohen's kappa).
+9. Reports: timestamped markdown + JSON in `evals/reports/`.
+
+**Done when**
+- [ ] `make eval-verify` confirms all 50 source quotes exist in the filings.
+- [ ] `make eval-retrieval` and `make eval-ablations` produce reports with no network calls to any LLM.
+- [ ] `make eval-generate` can be interrupted and resumed without repeating completed items, and stops cleanly when the budget is reached.
+- [ ] Judge model ≠ answer model is enforced.
+- [ ] Human-check file is exported; after marking, `make eval-agreement` reports the agreement rate.
+- [ ] Dataset version is recorded in every report.
+
+### Milestone 6 — Load testing, benchmarks, hardening
+
+**Tasks**
+1. Locust scenario (fake LLM): login, list documents, ask (SSE consumed fully); report p50/p95/p99 and error rate at fixed user counts.
+2. Ingestion benchmark: pages/minute for the 15 filings and a PDF set, with worker concurrency 1 and 2.
+3. `benchmarks/results.md` with machine specs (chip, RAM, OS, Docker memory limit) and exact commands.
+4. Hardening: structured logging with request IDs, consistent error schema, timeouts on LLM calls, worker job timeouts, graceful SSE cancellation on client disconnect, upload sanitization, DB pool sizing, startup checks for model files.
+
+**Done when**
+- [ ] Locust run reproducible via `make loadtest`; results table includes p95 and error rate.
+- [ ] Ingestion throughput recorded in pages/minute.
+- [ ] Tests cover: LLM timeout → `error` SSE event; client disconnect stops generation; worker crash mid-job → job retried.
+- [ ] No unhandled exceptions in logs during the load test.
+
+### Milestone 7 — Docs and release readiness
+
+**Tasks**
+1. README: overview, Mermaid architecture diagram, demo GIF, one-command setup, results tables (retrieval, ablations, generation, load), design decisions, limitations.
+2. "Deploying to the cloud" section written explicitly as a guide (not a claim of an existing deployment).
+3. Record demo GIF (Playwright video → ffmpeg → GIF).
+4. Pre-publication audit of the full git history: secrets (gitleaks or trufflehog), files that should be local-only, unexpected commit trailers, large files.
+
+**Done when**
+- [ ] A fresh clone + `.env` from `.env.example` + `make setup up` works following only the README.
+- [ ] Mermaid diagram renders on GitHub.
+- [ ] History audit is clean across all commits.
+
+---
+
+## 4. Questions and suggested changes
+
+1. **Companies and years.** Proposed: Apple, Microsoft, Amazon, JPMorgan Chase, Johnson & Johnson (tech, retail/cloud, bank, healthcare — different statement layouts make for better cross-company questions), fiscal years 2023–2025, pinned in `data/companies.yaml` for reproducibility. OK, or different picks?
+2. **Groq model names.** Defaults are `llama-3.3-70b-versatile` (answers) and `openai/gpt-oss-120b` (judge). Groq's catalog changes; I'll verify both are available and on the free tier before Milestone 3.
+3. **E2E in CI.** The spec's CI list omits Playwright. Suggest adding it as a separate CI job using the fake LLM (slower, but proves the full flow).
+4. **PDF library.** Suggest pdfplumber/pypdf rather than PyMuPDF, which is AGPL — awkward for a public portfolio repo.
+5. **Gold numbers cross-check.** Suggest optionally validating numeric gold answers against SEC's XBRL `companyfacts` API to catch transcription mistakes in the dataset.
+6. **Full stack in Docker vs. infra only.** Plan runs everything in Compose for one-command setup, but day-to-day dev runs API/worker/frontend on the host (faster reload, less RAM). Compose services will have memory limits.
+7. **Shared filings library.** Rather than every user re-ingesting the 15 filings, they're ingested once into a read-only library that workspaces can attach. Uploaded PDFs stay private to their workspace.
+8. **Rate-limit defaults.** 5 questions/minute and 100/day per user; adjust if you prefer.
