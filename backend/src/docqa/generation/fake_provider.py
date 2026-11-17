@@ -9,6 +9,7 @@ model without any network access or API key.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import threading
 import time
@@ -113,6 +114,8 @@ class FakeLLM(CustomLLM):
         super().__init__()
         self._lock = threading.Lock()
         self.calls = 0
+        # Pause between streamed words so the UI's incremental rendering is observable.
+        self.token_delay_seconds = 0.0
 
     def _record(self) -> None:
         with self._lock:
@@ -156,15 +159,18 @@ class FakeLLM(CustomLLM):
     async def astreaming(  # type: ignore[override]
         self, model: str, messages: list[Any], *args: Any, **kwargs: Any
     ) -> AsyncIterator[GenericStreamingChunk]:
-        for chunk in self._chunks(messages):
+        for i, chunk in enumerate(self._chunks(messages)):
+            if i and self.token_delay_seconds:
+                await asyncio.sleep(self.token_delay_seconds)
             yield chunk
 
 
 FAKE_LLM = FakeLLM()
 
 
-def register_fake_provider() -> FakeLLM:
+def register_fake_provider(token_delay_ms: float = 0) -> FakeLLM:
     """Make `fake/<anything>` resolve to FAKE_LLM (idempotent)."""
+    FAKE_LLM.token_delay_seconds = token_delay_ms / 1000
     providers = list(litellm.custom_provider_map or [])
     if not any(p.get("provider") == FAKE_PROVIDER for p in providers):
         providers.append({"provider": FAKE_PROVIDER, "custom_handler": FAKE_LLM})

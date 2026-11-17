@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from docqa.config import get_settings
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 app = typer.Typer(help="Document Q&A assistant command-line tools.", no_args_is_help=True)
 
@@ -151,6 +154,37 @@ def check_llm() -> None:
             typer.echo(f"  {name}: {value}")
     if failed:
         raise typer.Exit(1)
+
+
+@app.command("reset-db")
+def reset_db(
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm dropping the database.")] = False,
+) -> None:
+    """Drop and recreate DATABASE_URL's database, then apply migrations (APP_ENV=test only).
+
+    Used to give the end-to-end tests a clean database on every run.
+    """
+    import asyncio
+
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import make_url
+
+    from docqa.db.admin import recreate_database
+
+    settings = get_settings()
+    if settings.app_env != "test":
+        typer.secho("reset-db only runs with APP_ENV=test.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    if not yes:
+        typer.secho("Pass --yes to drop the database.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    asyncio.run(recreate_database(settings.database_url))
+    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+    cfg.attributes["db_url"] = settings.database_url
+    command.upgrade(cfg, "head")
+    typer.echo(f"Recreated and migrated database {make_url(settings.database_url).database}")
 
 
 if __name__ == "__main__":

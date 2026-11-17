@@ -114,3 +114,21 @@ async def test_default_limits_come_from_settings(app: FastAPI, settings: Any) ->
         "minute": settings.rate_limit_questions_per_minute,
         "day": settings.rate_limit_questions_per_day,
     }
+
+
+async def test_retry_after_is_readable_cross_origin(
+    app: FastAPI, client: AsyncClient, redis: Redis, settings: Any
+) -> None:
+    app.state.ask_limiter = SlidingWindowLimiter(
+        redis, "ratelimit:ask", [Window("minute", 60, 1)], Clock()
+    )
+    await signup(client, "a@example.org")
+    workspace = await create_workspace(client)
+    origin = {"Origin": settings.frontend_origin}
+    assert (await ask(client, workspace["id"], "Anything?")).status_code == 200
+    resp = await client.post(
+        f"/workspaces/{workspace['id']}/ask", json={"question": "Again?"}, headers=origin
+    )
+    assert resp.status_code == 429
+    assert resp.headers["Access-Control-Allow-Origin"] == settings.frontend_origin
+    assert "retry-after" in resp.headers["Access-Control-Expose-Headers"].lower()

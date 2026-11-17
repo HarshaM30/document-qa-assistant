@@ -1,5 +1,7 @@
-import { Placeholder } from '../components/Placeholder'
+import { useSignup } from '../api/auth'
+import { AuthForm } from '../components/AuthForm'
 
 export function SignupPage() {
-  return <Placeholder title="Sign up" description="Create an account to start asking questions." />
+  const signup = useSignup()
+  return <AuthForm mode="signup" submit={signup.mutateAsync} pending={signup.isPending} />
 }

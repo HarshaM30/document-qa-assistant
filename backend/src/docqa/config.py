@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr = SecretStr("")
     judge_provider: str = "groq"
     judge_model: str = "qwen/qwen3.8-27b"
+    fake_llm_token_delay_ms: float = Field(default=0, ge=0)
 
     # --- Embeddings / reranker ---
     embedding_model: str = "BAAI/bge-small-en-v1.5"

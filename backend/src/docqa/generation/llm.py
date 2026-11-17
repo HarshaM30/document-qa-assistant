@@ -53,7 +53,7 @@ def _api_key(settings: Settings, provider: str) -> str | None:
 
 def _spec(settings: Settings, provider: str, model: str) -> LLMSpec:
     if provider == FAKE_PROVIDER:
-        register_fake_provider()
+        register_fake_provider(settings.fake_llm_token_delay_ms)
     return LLMSpec(
         provider=provider,
         model=model,

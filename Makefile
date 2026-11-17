@@ -60,8 +60,8 @@ test-int: deps ## Backend integration tests (starts Postgres and Redis if needed
 
 test: test-unit test-int ## All backend tests
 
-e2e: ## Playwright end-to-end tests (added in Milestone 4)
-	@echo "E2E tests arrive with the UI in Milestone 4." && exit 1
+e2e: deps ## Playwright end-to-end tests (fake LLM, fresh docqa_e2e database)
+	$(FRONTEND) run e2e
 
 resolve-filings: ## Look up the latest 10-Ks on EDGAR and rewrite data/filings.lock.json
 	$(BACKEND) docqa download-edgar --resolve

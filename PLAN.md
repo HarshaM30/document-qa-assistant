@@ -23,9 +23,10 @@ document-qa-assistant/
 │   ├── src/docqa/
 │   │   ├── main.py               # FastAPI app factory, middleware, routers
 │   │   ├── config.py             # pydantic-settings, reads .env
-│   │   ├── cli.py                # Typer CLI: download-edgar, ingest-filings, eval, etc.
+│   │   ├── cli.py                # Typer CLI: download-edgar, ingest-filings, reset-db, eval, etc.
 │   │   ├── db/
 │   │   │   ├── session.py        # async engine + session dependency
+│   │   │   ├── admin.py          # drop + recreate a throwaway database (E2E)
 │   │   │   └── models.py         # User, Session, Workspace, Document, Section, Chunk, IngestionJob, Question, Answer
 │   │   ├── auth/
 │   │   │   ├── passwords.py      # argon2id hashing
@@ -94,8 +95,9 @@ document-qa-assistant/
 │   │   ├── pages/                # Login, Signup, Workspaces, Documents, Chat
 │   │   └── components/           # UploadDropzone, IngestionStatus, ChatMessage, CitationPanel, ...
 │   └── e2e/
-│       ├── playwright.config.ts
-│       └── happy-path.spec.ts    # sign up → upload → ask → open citation
+│       ├── playwright.config.ts  # starts API + worker (fresh docqa_e2e DB) and the built frontend
+│       ├── start-backend.sh      # reset DB, run worker + API for the tests
+│       └── happy-path.spec.ts    # sign up → upload → ask → open citation; auth; stream errors; rate limit
 ├── evals/
 │   ├── datasets/
 │   │   ├── qa_v1.jsonl           # 50 questions with gold answers + source quotes
@@ -228,17 +230,17 @@ document-qa-assistant/
 2. Sign up / log in pages with validation and error states.
 3. Workspaces page: list, create, rename, delete.
 4. Documents page: drag-and-drop upload, per-document status with progress bar, error + retry display; attach SEC filings library.
-5. Chat page: POST-based SSE reader, streaming render, stop button, refusal styling, rate-limit message.
+5. Chat page: POST-based SSE reader, streaming render, stop button, refusal styling, rate-limit message (the API exposes `Retry-After` through CORS so the page can say when to try again). The conversation lives in the page; questions and answers are stored server-side but not yet listed back.
 6. Citation chips → side panel showing source passage, document name, and Item/section or page.
-7. Playwright E2E with the fake LLM: sign up → create workspace → upload fixture PDF → wait for `done` → ask → click citation → passage visible.
+7. Playwright E2E with the fake LLM: sign up → create workspace → upload fixture PDF → wait for `done` → ask → click citation → passage visible. Also: login guard and bad credentials, a stream cut off mid-answer, and the per-minute rate limit. `make e2e` runs the API on port 8001 and the built frontend on 4173 (so dev servers can keep running), against a `docqa_e2e` database that `docqa reset-db` drops, recreates, and migrates on every run, and Redis DB 2. `FAKE_LLM_TOKEN_DELAY_MS` slows the fake model's stream so the test can see partial text before the answer finishes.
 8. CI: add a separate `e2e` job that starts Postgres + Redis service containers, runs migrations, starts API + worker with `LLM_PROVIDER=fake`, serves the built frontend, runs Playwright (Chromium only), and uploads the Playwright report as an artifact on failure.
 
 **Done when**
-- [ ] All pages work against the real backend; refresh preserves the session.
-- [ ] Streaming is visibly incremental; partial answers survive network errors with an error notice.
-- [ ] Clicking a citation shows the exact passage text that was cited.
-- [ ] `npm run typecheck && npm run lint && npm run build` pass.
-- [ ] `make e2e` passes headless locally from a clean DB.
+- [x] All pages work against the real backend; refresh preserves the session.
+- [x] Streaming is visibly incremental; partial answers survive network errors with an error notice.
+- [x] Clicking a citation shows the exact passage text that was cited.
+- [x] `npm run typecheck && npm run lint && npm run build` pass.
+- [x] `make e2e` passes headless locally from a clean DB.
 - [ ] The `e2e` CI job is green on push, needs no secrets, and makes no network calls to any LLM.
 
 ### Milestone 5 — Evaluation

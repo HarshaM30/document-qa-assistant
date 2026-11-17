@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 
 import litellm
@@ -56,6 +57,19 @@ async def test_fake_provider_streams_through_litellm_and_counts_calls() -> None:
     assert len(pieces) > 1  # streamed word by word
     assert "".join(pieces) == "The company operates 42 retail stores. [1]"
     assert FAKE_LLM.calls == before + 1
+
+
+async def test_fake_provider_token_delay_spaces_out_words() -> None:
+    spec = answer_llm(Settings(llm_provider="fake", fake_llm_token_delay_ms=20))
+    chain = answer_prompt() | litellm_stream(spec)
+    inputs = {"context": format_context(PASSAGES), "question": "How many retail stores?"}
+    try:
+        started = time.monotonic()
+        pieces = [piece async for piece in chain.astream(inputs)]
+        elapsed = time.monotonic() - started
+    finally:
+        answer_llm(Settings(llm_provider="fake"))  # reset the shared fake's delay
+    assert elapsed >= 0.02 * (len(pieces) - 1)
 
 
 def test_reasoning_effort_only_for_reasoning_models() -> None:

@@ -80,6 +80,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["Content-Type", CSRF_HEADER],
+        # Lets the SPA read how long to wait after a 429.
+        expose_headers=["Retry-After"],
     )
 
     app.include_router(health.router)
