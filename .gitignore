@@ -32,8 +32,8 @@ blob-report/
 data/raw/
 data/uploads/
 
-# --- Benchmark / eval scratch output ---
-evals/.checkpoints/
+# --- Eval scratch output (checkpoints in evals/checkpoints/ are committed) ---
+evals/.budget/
 
 # --- OS / editor ---
 .DS_Store

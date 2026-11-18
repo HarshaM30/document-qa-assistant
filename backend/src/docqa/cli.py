@@ -15,6 +15,12 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 app = typer.Typer(help="Document Q&A assistant command-line tools.", no_args_is_help=True)
 
 
+def _register_subcommands() -> None:
+    from docqa.evals.cli import eval_app
+
+    app.add_typer(eval_app, name="eval")
+
+
 def _setup_logging() -> None:
     logging.basicConfig(
         level=get_settings().log_level.upper(),
@@ -186,6 +192,8 @@ def reset_db(
     command.upgrade(cfg, "head")
     typer.echo(f"Recreated and migrated database {make_url(settings.database_url).database}")
 
+
+_register_subcommands()
 
 if __name__ == "__main__":
     app()

@@ -105,6 +105,12 @@ class Settings(BaseSettings):
     companies_file: Path = Path("data/companies.yaml")
     filings_lock_file: Path = Path("data/filings.lock.json")
 
+    # --- Evaluation (per-model budgets for the generation eval) ---
+    eval_daily_request_budget: int = Field(default=900, ge=1)
+    eval_daily_token_budget: int = Field(default=180_000, ge=1)
+    eval_tokens_per_minute: int = Field(default=7_000, ge=1)
+    eval_request_interval_seconds: float = Field(default=2.5, ge=0)
+
     @field_validator(
         "fastembed_cache_dir",
         "upload_dir",

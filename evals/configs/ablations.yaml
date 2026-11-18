@@ -1,0 +1,35 @@
+# Retrieval ablations. None of these call an LLM.
+#
+# `indexes` are the chunk variants built into the shared library by `make eval-index`
+# (stored in the same `chunks` table under their own index_config key).
+# Every variant in `groups` starts from `base` and overrides only what it lists.
+
+indexes:
+  - {strategy: section, size: 256, overlap: 32}
+  - {strategy: section, size: 512, overlap: 64}
+  - {strategy: section, size: 1024, overlap: 128}
+  - {strategy: naive, size: 512, overlap: 64}
+
+base:
+  index_config: section-512-64
+  use_vector: true
+  use_keyword: true
+  use_rerank: true
+  top_n: 10            # recall@10 needs at least 10 results
+
+groups:
+  chunk_size:
+    section-256-32: {index_config: section-256-32}
+    section-512-64: {}
+    section-1024-128: {index_config: section-1024-128}
+  table_aware:
+    section-aware (tables as labelled rows): {}
+    naive fixed windows: {index_config: naive-512-64}
+  search_mode:
+    vector only: {use_keyword: false, use_rerank: false}
+    keyword only: {use_vector: false, use_rerank: false}
+    hybrid (RRF): {use_rerank: false}
+  rerank:
+    hybrid, rerank off: {use_rerank: false}
+    hybrid, rerank on: {}
+    vector, rerank on: {use_keyword: false}

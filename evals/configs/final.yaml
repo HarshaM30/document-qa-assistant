@@ -1,0 +1,14 @@
+# Configuration used for the generation eval (matches the API defaults in .env.example).
+name: final
+retrieval:
+  index_config: section-512-64
+  use_vector: true
+  use_keyword: true
+  use_rerank: true
+  vector_k: 30
+  keyword_k: 30
+  rrf_k: 60
+  rerank_candidates: 30
+  top_n: 6
+  ef_search: 100
+refusal_min_rerank_score: 0.0

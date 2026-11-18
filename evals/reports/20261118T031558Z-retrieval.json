@@ -1,0 +1,553 @@
+{
+  "kind": "retrieval",
+  "created_at": "20261118T031558Z",
+  "dataset": "qa_v1@3a91ad46",
+  "config": {
+    "index_config": "section-512-64",
+    "use_vector": true,
+    "use_keyword": true,
+    "use_rerank": true,
+    "vector_k": 30,
+    "keyword_k": 30,
+    "rrf_k": 60,
+    "rerank_candidates": 30,
+    "top_n": 10,
+    "ef_search": 100
+  },
+  "overall": {
+    "n": 40,
+    "recall": {
+      "5": 0.275,
+      "10": 0.425
+    },
+    "mrr": 0.18117063492063493
+  },
+  "by_category": {
+    "cross_company": {
+      "n": 8,
+      "recall": {
+        "5": 0.125,
+        "10": 0.25
+      },
+      "mrr": 0.1984126984126984
+    },
+    "factual": {
+      "n": 12,
+      "recall": {
+        "5": 0.4166666666666667,
+        "10": 0.5
+      },
+      "mrr": 0.23472222222222225
+    },
+    "table": {
+      "n": 12,
+      "recall": {
+        "5": 0.25,
+        "10": 0.5
+      },
+      "mrr": 0.1681547619047619
+    },
+    "yoy": {
+      "n": 8,
+      "recall": {
+        "5": 0.25,
+        "10": 0.375
+      },
+      "mrr": 0.103125
+    }
+  },
+  "mean_seconds": 1.0301,
+  "missing_gold": [],
+  "questions": [
+    {
+      "id": "F01",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "F02",
+      "category": "factual",
+      "gold_chunks": [
+        2
+      ],
+      "first_hit_rank": 5,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "F03",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 1,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "F04",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "F05",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 4,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "F06",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 5,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "F07",
+      "category": "factual",
+      "gold_chunks": [
+        2
+      ],
+      "first_hit_rank": 1,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "F08",
+      "category": "factual",
+      "gold_chunks": [
+        3
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "F09",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 6,
+      "recall": {
+        "5": 0.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "F10",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "F11",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "F12",
+      "category": "factual",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "T01",
+      "category": "table",
+      "gold_chunks": [
+        2
+      ],
+      "first_hit_rank": 4,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "T02",
+      "category": "table",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "T03",
+      "category": "table",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 8,
+      "recall": {
+        "5": 0.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "T04",
+      "category": "table",
+      "gold_chunks": [
+        2
+      ],
+      "first_hit_rank": 7,
+      "recall": {
+        "5": 0.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "T05",
+      "category": "table",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 1,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "T06",
+      "category": "table",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "T07",
+      "category": "table",
+      "gold_chunks": [
+        2
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "T08",
+      "category": "table",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 3,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "T09",
+      "category": "table",
+      "gold_chunks": [
+        2
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "T10",
+      "category": "table",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "T11",
+      "category": "table",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "T12",
+      "category": "table",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 6,
+      "recall": {
+        "5": 0.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "Y01",
+      "category": "yoy",
+      "gold_chunks": [
+        2
+      ],
+      "first_hit_rank": 5,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "Y02",
+      "category": "yoy",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "Y03",
+      "category": "yoy",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "Y04",
+      "category": "yoy",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "Y05",
+      "category": "yoy",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "Y06",
+      "category": "yoy",
+      "gold_chunks": [
+        1
+      ],
+      "first_hit_rank": 2,
+      "recall": {
+        "5": 1.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "Y07",
+      "category": "yoy",
+      "gold_chunks": [
+        1,
+        1
+      ],
+      "first_hit_rank": 8,
+      "recall": {
+        "5": 0.0,
+        "10": 1.0
+      }
+    },
+    {
+      "id": "Y08",
+      "category": "yoy",
+      "gold_chunks": [
+        1,
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "C01",
+      "category": "cross_company",
+      "gold_chunks": [
+        4,
+        3
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "C02",
+      "category": "cross_company",
+      "gold_chunks": [
+        3,
+        3
+      ],
+      "first_hit_rank": 7,
+      "recall": {
+        "5": 0.0,
+        "10": 0.5
+      }
+    },
+    {
+      "id": "C03",
+      "category": "cross_company",
+      "gold_chunks": [
+        1,
+        2
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "C04",
+      "category": "cross_company",
+      "gold_chunks": [
+        1,
+        1
+      ],
+      "first_hit_rank": 3,
+      "recall": {
+        "5": 0.5,
+        "10": 0.5
+      }
+    },
+    {
+      "id": "C05",
+      "category": "cross_company",
+      "gold_chunks": [
+        1,
+        1
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    },
+    {
+      "id": "C06",
+      "category": "cross_company",
+      "gold_chunks": [
+        2,
+        1
+      ],
+      "first_hit_rank": 1,
+      "recall": {
+        "5": 0.5,
+        "10": 0.5
+      }
+    },
+    {
+      "id": "C07",
+      "category": "cross_company",
+      "gold_chunks": [
+        1,
+        2
+      ],
+      "first_hit_rank": 9,
+      "recall": {
+        "5": 0.0,
+        "10": 0.5
+      }
+    },
+    {
+      "id": "C08",
+      "category": "cross_company",
+      "gold_chunks": [
+        1,
+        2
+      ],
+      "first_hit_rank": null,
+      "recall": {
+        "5": 0.0,
+        "10": 0.0
+      }
+    }
+  ]
+}

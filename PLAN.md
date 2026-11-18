@@ -23,7 +23,7 @@ document-qa-assistant/
 │   ├── src/docqa/
 │   │   ├── main.py               # FastAPI app factory, middleware, routers
 │   │   ├── config.py             # pydantic-settings, reads .env
-│   │   ├── cli.py                # Typer CLI: download-edgar, ingest-filings, reset-db, eval, etc.
+│   │   ├── cli.py                # Typer CLI: download-edgar, ingest-filings, reset-db, check-llm, `eval …`
 │   │   ├── db/
 │   │   │   ├── session.py        # async engine + session dependency
 │   │   │   ├── admin.py          # drop + recreate a throwaway database (E2E)
@@ -70,14 +70,18 @@ document-qa-assistant/
 │   │   │   ├── settings.py       # arq WorkerSettings
 │   │   │   └── tasks.py          # ingest_document task with retry/backoff
 │   │   └── evals/                # eval code (data lives in /evals)
-│   │       ├── dataset.py        # schema + loader + quote verification
-│   │       ├── retrieval_eval.py # recall@k, MRR
+│   │       ├── cli.py            # `docqa eval index|verify|xbrl|retrieval|ablations|generate|human-export|agreement`
+│   │       ├── configs.py        # loads evals/configs/*.yaml; stable config hashes
+│   │       ├── dataset.py        # schema + loader + quote verification + gold-chunk matching
+│   │       ├── retrieval_eval.py # recall@k, MRR; eval-only workspace with the library attached
 │   │       ├── ablations.py
-│   │       ├── generation_eval.py
+│   │       ├── generation_eval.py # answer → judge, JSONL checkpoint, scoring
 │   │       ├── judge.py
+│   │       ├── client.py         # non-streamed LLM calls through per-model budgets, 429 retries
 │   │       ├── xbrl_check.py     # cross-check numeric gold answers vs SEC companyfacts
-│   │       ├── budget.py         # daily request/token budget + checkpointing
-│   │       └── human_check.py    # export + agreement report
+│   │       ├── budget.py         # daily request/token budgets (ledger per UTC day) + tokens/minute
+│   │       ├── human_check.py    # export + agreement report
+│   │       └── reports.py        # timestamped markdown + JSON reports
 │   └── tests/
 │       ├── unit/
 │       ├── integration/          # real Postgres + Redis, fake LLM
@@ -102,9 +106,11 @@ document-qa-assistant/
 │   ├── datasets/
 │   │   ├── qa_v1.jsonl           # 50 questions with gold answers + source quotes
 │   │   └── CHANGELOG.md          # dataset versioning notes
-│   ├── configs/                  # ablation + final configs (YAML)
+│   ├── configs/                  # ablations.yaml + final.yaml
+│   ├── checkpoints/              # generation-eval JSONL checkpoints (committed, so runs resume anywhere)
 │   ├── human_check/              # exported markdown for manual agree/disagree
-│   └── reports/                  # timestamped reports (committed)
+│   ├── reports/                  # timestamped reports (committed)
+│   └── .budget/                  # gitignored: today's LLM usage per model
 ├── benchmarks/
 │   ├── locustfile.py
 │   ├── ingest_throughput.py
@@ -148,7 +154,7 @@ document-qa-assistant/
 | Fake LLM | LiteLLM custom provider `fake/…` that returns a deterministic extractive answer from the top passages with `[n]` markers, or the refusal sentence | Streams like a real model; tests and CI need no network or key |
 | Queue | arq on Redis; job state mirrored in an `ingestion_jobs` table (status, stage, progress %, attempts, error) | UI polls Postgres state; retries with exponential backoff |
 | Rate limit | Redis sliding window per user (per-minute and per-day) on `/ask`, checked and recorded atomically in one Lua script; rejected requests don't use quota; returns 429 with `Retry-After` | Protects the free-tier LLM quota |
-| Ablation indexes | `chunks` table carries an `index_config` key (e.g. `section-512-64`, `naive-256-32`); ablation variants are built into the same table under different keys in an eval-only workspace | No schema churn per experiment; embedding dim stays fixed |
+| Ablation indexes | `chunks` table carries an `index_config` key (e.g. `section-512-64`, `naive-512-64`); `docqa eval index` adds ablation variants to the library filings under their own keys (the API only reads the default key), and evals query them through an eval-only workspace with the library attached | No schema churn per experiment; embedding dim stays fixed; each filing is parsed once for all variants |
 
 ---
 
@@ -246,12 +252,12 @@ document-qa-assistant/
 ### Milestone 5 — Evaluation
 
 **Tasks**
-1. Dataset schema (`id`, `category`, `question`, `gold_answer`, `numeric_value` + `unit` + `xbrl_concept` where applicable, `company`, `fiscal_year`, `source_doc`, `source_section`, `source_quote`, `answerable`).
+1. Dataset schema (`id`, `category`, `question`, `gold_answer`, `answerable`, `companies`, `fiscal_years`, `sources` = list of {`doc`, `section`, `quote`}, `numeric` = list of {`value`, `unit`, `company`, `fiscal_year`, `xbrl_concept` or `xbrl_note`}). Sources and numbers are lists so year-over-year and cross-company questions can carry one per filing or value.
 2. Author 50 questions: ~12 factual lookups, ~12 table numbers, ~8 year-over-year, ~8 cross-company, ~10 unanswerable. Fiscal years differ by company (see Milestone 2), so cross-company questions only use fiscal years that all compared companies have filed.
 3. XBRL cross-check: for numeric questions, record the XBRL concept (e.g. `us-gaap:Revenues`), and `make eval-xbrl` compares `numeric_value` against SEC's `companyfacts` API for the matching fiscal period (cached locally, same user agent + rate limiter). Mismatches must be fixed or given a documented reason, e.g. the filing reports a segment figure that XBRL tags differently.
-4. Quote verifier: every `source_quote` must appear (whitespace-normalized) in the parsed filing text; gold chunk IDs derived from the quote for each index config.
-5. Retrieval eval (no LLM): recall@5, recall@10, MRR, overall and per category.
-6. Ablations (no LLM): chunk size {256, 512, 1024}, table-aware vs naive, vector vs keyword vs hybrid, rerank on vs off.
+4. Quote verifier: every source quote must appear (whitespace-normalized) in the stated Item of the parsed filing text, with tables rendered as the chunker renders them. Gold chunk IDs are derived from the quote for each index config: chunks of the source filing that contain it, or, if none do verbatim (naive chunks hold raw table cells without labels), chunks that contain every token of it.
+5. Retrieval eval (no LLM): recall@5, recall@10, MRR, overall and per category. Recall@k is the fraction of a question's sources with a gold chunk in the top k; unanswerables are excluded.
+6. Ablations (no LLM): chunk size {256, 512, 1024} (overlap size/8), table-aware vs naive (both 512), vector vs keyword vs hybrid, rerank on vs off. Variants are listed in `evals/configs/ablations.yaml` and built with `make eval-index`.
 7. Generation eval on the final config: numeric correctness (parse numbers, normalize units/scale, tolerance), citation correctness (cited chunk contains the gold quote), refusal accuracy (precision/recall on unanswerables), faithfulness by a judge model different from the answering model (asserted at startup).
 8. Budget + resume: JSONL checkpoint per run keyed by (question id, config hash); separate daily request/token budgets per model (answer and judge), plus a tokens-per-minute limit; spacing between calls; retry on 429 honoring `retry-after`; graceful stop with "resume tomorrow" message.
 9. Human check: export 20 judged answers to markdown with agree/disagree checkboxes; parser computes judge-human agreement rate (and Cohen's kappa).

@@ -7,7 +7,9 @@ FRONTEND := npm --prefix frontend
 .DEFAULT_GOAL := help
 .PHONY: help setup up down deps migrate dev-api dev-worker dev-web \
         lint typecheck fmt test-unit test-int test e2e \
-        resolve-filings download ingest-filings check-llm
+        resolve-filings download ingest-filings check-llm \
+        eval-index eval-verify eval-xbrl eval-retrieval eval-ablations eval-generate \
+        eval-report eval-human eval-agreement
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -74,3 +76,32 @@ ingest-filings: deps ## Parse, chunk, embed and index the downloaded 10-Ks into 
 
 check-llm: ## Send one tiny request to the answer and judge models; print their rate limits
 	$(BACKEND) docqa check-llm
+
+# --- Evaluation (only eval-generate calls an LLM; see evals/configs/) ---
+
+eval-index: deps ## Build the chunk variants used by the ablations into the filings library
+	$(BACKEND) docqa eval index
+
+eval-verify: deps ## Check every source quote exists in its filing and maps to gold chunks
+	$(BACKEND) docqa eval verify
+
+eval-xbrl: ## Cross-check numeric gold answers against SEC XBRL companyfacts
+	$(BACKEND) docqa eval xbrl
+
+eval-retrieval: deps ## Recall@5/10 and MRR for the default retrieval config (no LLM)
+	$(BACKEND) docqa eval retrieval
+
+eval-ablations: deps ## Retrieval ablations: chunk size, table-aware, search mode, rerank (no LLM)
+	$(BACKEND) docqa eval ablations
+
+eval-generate: deps ## Generation eval with the answer + judge models; resumable, stops at the daily budget
+	$(BACKEND) docqa eval generate
+
+eval-report: ## Re-score the generation checkpoint into a report (no LLM calls)
+	$(BACKEND) docqa eval generate --report-only
+
+eval-human: ## Export 20 judged answers for a manual check of the judge
+	$(BACKEND) docqa eval human-export
+
+eval-agreement: ## Judge-human agreement (and Cohen's kappa) from the marked human-check file
+	$(BACKEND) docqa eval agreement

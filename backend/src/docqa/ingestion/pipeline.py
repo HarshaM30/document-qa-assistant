@@ -136,7 +136,7 @@ async def _embed(
     return vectors
 
 
-async def _store(
+async def store_chunks(
     db: AsyncSession,
     document_id: uuid.UUID,
     parsed: ParsedDocument,
@@ -233,7 +233,7 @@ async def run_ingestion(
 
     await tracker.stage(JobStage.INDEXING)
     async with sessionmaker() as db:
-        await _store(db, document_id, parsed, config.key, drafts, vectors)
+        await store_chunks(db, document_id, parsed, config.key, drafts, vectors)
         await db.execute(
             update(Document)
             .where(Document.id == document_id)
