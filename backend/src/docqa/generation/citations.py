@@ -11,8 +11,9 @@ from pydantic import BaseModel
 
 from docqa.retrieval.retriever import Passage
 
-# [1], [1, 3], [1,3]; adjacent markers like [1][3] are simply two matches.
-_MARKER = re.compile(r"\[\s*(\d+(?:\s*,\s*\d+)*)\s*\]")
+# [1], [1, 3], [1,3]; adjacent markers like [1][3] are simply two matches. gpt-oss sometimes
+# appends a line reference after a dagger, e.g. [1†L9-L10]; the passage number still counts.
+_MARKER = re.compile(r"\[\s*(\d+(?:\s*,\s*\d+)*)\s*(?:\u2020[^\]]*)?\]")
 
 # Some models (gpt-oss among them) cite with CJK lenticular or fullwidth brackets.
 _BRACKETS = str.maketrans({"\u3010": "[", "\u3011": "]", "\uff3b": "[", "\uff3d": "]"})

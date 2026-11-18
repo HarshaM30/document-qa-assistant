@@ -35,7 +35,7 @@ from docqa.evals.reports import pct, table
 from docqa.evals.retrieval_eval import GoldIndex
 from docqa.evals.xbrl_check import UNITS
 from docqa.generation.chain import to_litellm_messages
-from docqa.generation.citations import resolve_citations
+from docqa.generation.citations import parse_markers, resolve_citations
 from docqa.generation.llm import LLMSpec
 from docqa.generation.prompts import (
     REFUSAL_SENTENCE,
@@ -236,7 +236,7 @@ async def run_generation(
 
 # --- Scoring (no LLM) --------------------------------------------------------------------
 
-_MARKERS = re.compile(r"\[\s*\d+(?:\s*,\s*\d+)*\s*\]")
+_MARKERS = re.compile(r"\[\s*\d+(?:\s*,\s*\d+)*\s*(?:\u2020[^\]]*)?\]")
 _NUMBER = re.compile(
     r"(?<![\w.])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*"
     r"(%|percent\b|thousand\b|million\b|billion\b|trillion\b)?",
@@ -269,6 +269,16 @@ def states_number(answer: str, fact: NumericFact) -> bool:
     )
 
 
+def cited_chunk_ids(record: dict[str, Any]) -> list[str]:
+    """Chunks the answer cites, re-derived from its text so parser fixes apply on re-scoring."""
+    passages = record["passages"]
+    return [
+        passages[m - 1]["chunk_id"]
+        for m in parse_markers(record["answer"])
+        if 1 <= m <= len(passages)
+    ]
+
+
 @dataclass(frozen=True)
 class ItemScore:
     item_id: str
@@ -292,7 +302,7 @@ def score_record(item: QAItem, record: dict[str, Any]) -> ItemScore:
         numeric = not refused and all(states_number(record["answer"], f) for f in item.numeric)
     citation = None
     if item.answerable and not refused:
-        citation = bool(gold & set(record["cited_chunk_ids"]))
+        citation = bool(gold & set(cited_chunk_ids(record)))
     verdict = Verdict.from_json(record["judge"]) if record.get("judge") else None
     return ItemScore(
         item_id=item.id,

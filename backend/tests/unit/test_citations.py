@@ -45,3 +45,8 @@ def test_resolve_drops_markers_without_a_passage() -> None:
     cited = resolve_citations("A [0]. B [2]. C [4]. D [99].", PASSAGES)
     assert [c.marker for c in cited] == [2]
     assert resolve_citations("No sources [1].", []) == []
+
+
+def test_line_referenced_markers_count_as_their_passage() -> None:
+    assert parse_markers("EPS was $8.98 [1\u2020L9-L10][6\u2020L7-L8].") == [1, 6]
+    assert parse_markers("See [2, 3\u2020L1]") == [2, 3]

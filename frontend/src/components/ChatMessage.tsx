@@ -2,7 +2,8 @@ import type { ChatTurn } from '../api/chat'
 import type { Citation } from '../api/types'
 import { CitationChip } from './CitationChip'
 
-const MARKER = /(\[\s*\d+(?:\s*,\s*\d+)*\s*\])/g
+// [1], [1, 3], and gpt-oss's line-referenced form [1†L9-L10]
+const MARKER = /(\[\s*\d+(?:\s*,\s*\d+)*\s*(?:†[^\]]*)?\])/g
 
 /** Answer text with [n] markers rendered as clickable superscripts. */
 function AnswerText({
@@ -19,7 +20,7 @@ function AnswerText({
     <>
       {text.split(MARKER).map((part, i) => {
         if (i % 2 === 0) return part
-        const numbers = part.slice(1, -1).split(',').map((n) => Number(n.trim()))
+        const numbers = part.slice(1, -1).split('†')[0].split(',').map((n) => Number(n.trim()))
         return numbers.map((n, j) => {
           const citation = byMarker.get(n)
           if (!citation) return <sup key={`${i}-${j}`} className="text-slate-400">[{n}]</sup>

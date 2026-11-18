@@ -85,3 +85,9 @@ def test_summarize_refusal_precision_recall() -> None:
     assert s["numeric_n"] == 2
     assert s["citation_accuracy"] == 1.0
     assert s["citation_n"] == 1
+
+
+def test_line_referenced_citations_are_scored() -> None:
+    score = score_record(_item(), _record("Sales were $100 million [1†L3-L4]."))
+    assert score.citation_correct
+    assert score.numeric_correct

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from docqa.config import REPO_ROOT
+from docqa.evals.generation_eval import cited_chunk_ids
 from docqa.evals.judge import Verdict
 
 HUMAN_CHECK_DIR = REPO_ROOT / "evals" / "human_check"
@@ -60,7 +61,7 @@ def export_markdown(records: Sequence[dict[str, Any]], dataset_version: str, run
     ]
     for n, record in enumerate(records, start=1):
         verdict = Verdict.from_json(record["judge"])
-        cited = set(record["cited_chunk_ids"])
+        cited = set(cited_chunk_ids(record))
         lines += [
             "",
             "---",

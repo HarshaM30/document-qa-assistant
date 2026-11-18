@@ -146,7 +146,7 @@ document-qa-assistant/
 | Keyword search | Generated `tsvector` column + GIN index, `websearch_to_tsquery` over the question's terms joined with `or`, ranked by `ts_rank_cd` | Native, no extra service; plain `websearch_to_tsquery` ANDs every word, so a natural-language question rarely matches anything |
 | Fusion | RRF with k=60 over top-30 vector + top-30 keyword; the top 30 fused results go to the reranker | Standard, parameter-light |
 | Tables | Each table emitted as its own chunk, rendered as `Row label \| Column header: value` lines with the table caption and section prepended | Keeps numbers attached to their meaning; never split mid-row |
-| Citations | Prompt numbers context passages `[1]..[n]`; server maps markers to chunk → (document, Item/section or page) and sends a `citations` SSE event. Lenticular/fullwidth brackets (`【3】`, which gpt-oss emits) are rewritten to `[3]` as tokens stream | Exact, verifiable sources; frontend fetches the passage on click |
+| Citations | Prompt numbers context passages `[1]..[n]`; server maps markers to chunk → (document, Item/section or page) and sends a `citations` SSE event. Lenticular/fullwidth brackets (`【3】`, which gpt-oss emits) are rewritten to `[3]` as tokens stream, and gpt-oss's line-referenced form `[3†L9-L10]` counts as passage 3 (found by the generation eval) | Exact, verifiable sources; frontend fetches the passage on click |
 | Refusal | Two layers: (1) if retrieval finds nothing, or the best rerank score < `REFUSAL_MIN_RERANK_SCORE` → refuse without calling the LLM (with reranking off, only the empty case applies); (2) prompt instructs a fixed refusal sentence, detected server-side | Saves LLM calls and makes refusal measurable |
 | LLM models | Answer: `openai/gpt-oss-120b`; judge: `qwen/qwen3.8-27b` (fallback judge: `openai/gpt-oss-20b`). Both via LiteLLM `groq/` prefix | Must be on Groq's free tier and differ from each other; a judge from a different model family reduces self-preference bias. See section 4 |
 | PDF parsing | pdfplumber | MIT license; page-level text and table extraction |
@@ -264,13 +264,13 @@ document-qa-assistant/
 10. Reports: timestamped markdown + JSON in `evals/reports/`.
 
 **Done when**
-- [ ] `make eval-verify` confirms all 50 source quotes exist in the filings.
-- [ ] `make eval-xbrl` reports zero unexplained mismatches between numeric gold answers and SEC XBRL data.
-- [ ] `make eval-retrieval` and `make eval-ablations` produce reports with no network calls to any LLM.
-- [ ] `make eval-generate` can be interrupted and resumed without repeating completed items, and stops cleanly when the budget is reached.
-- [ ] Judge model ≠ answer model is enforced.
-- [ ] Human-check file is exported; after marking, `make eval-agreement` reports the agreement rate.
-- [ ] Dataset version is recorded in every report.
+- [x] `make eval-verify` confirms all 50 source quotes exist in the filings.
+- [x] `make eval-xbrl` reports zero unexplained mismatches between numeric gold answers and SEC XBRL data.
+- [x] `make eval-retrieval` and `make eval-ablations` produce reports with no network calls to any LLM.
+- [x] `make eval-generate` can be interrupted and resumed without repeating completed items, and stops cleanly when the budget is reached.
+- [x] Judge model ≠ answer model is enforced.
+- [ ] Human-check file is exported; after marking, `make eval-agreement` reports the agreement rate. (Exported to `evals/human_check/`; waiting on manual marks.)
+- [x] Dataset version is recorded in every report.
 
 ### Milestone 6 — Load testing, benchmarks, hardening
 
@@ -310,6 +310,7 @@ document-qa-assistant/
    - Published Developer-plan limits for each model are 30 RPM, 1K RPD, 8K TPM, and 200K TPD. Free-tier limits may be lower. `docqa check-llm` (Milestone 3, task 0) checks both models with the real key and records the actual limits before any generation work.
    - **Observed with the free key (2026-11-17, `make check-llm`):** both `openai/gpt-oss-120b` and `qwen/qwen3.8-27b` answer, so the primary judge stays. Groq's `x-ratelimit-*` headers report **1,000 requests/day** and **8,000 tokens/minute** for each model, the same as the published table. Tokens/day isn't in the headers, so the published 200K is assumed. The eval budget defaults in `.env.example` stay just under these limits: 900 requests/day, 180K tokens/day, 7K tokens/minute.
    - At 8K tokens per minute, each RAG call should stay around 4–5K tokens (6 reranked passages of ≤512 tokens plus the answer), so evals run about 1–2 questions per minute. The full 50-question generation eval fits within one day's budget per model.
+   - **Observed (2026-11-18, first full generation run):** answers averaged ~3.4K tokens and judge calls ~4.1K (judge prompts carry the passages too). The run took ~25 minutes and used 48 requests / 114K tokens on the answer model and 23 judged answers / 64K tokens on the judge (2 questions were refused by the rerank gate, and refused answers aren't judged). A handful of per-minute 429s were retried after Groq's `retry-after`.
 3. **E2E in CI.** Yes, as a separate `e2e` job using the fake LLM (Milestone 4).
 4. **PDF library.** pdfplumber.
 5. **XBRL check.** Yes, numeric gold answers are cross-checked against SEC `companyfacts` (Milestone 5).
