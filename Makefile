@@ -9,7 +9,8 @@ FRONTEND := npm --prefix frontend
         lint typecheck fmt test-unit test-int test e2e \
         resolve-filings download ingest-filings check-llm \
         eval-index eval-verify eval-xbrl eval-retrieval eval-ablations eval-generate \
-        eval-report eval-human eval-agreement eval-tune-index eval-tune eval-final-retrieval
+        eval-report eval-human eval-agreement eval-tune-index eval-tune eval-final-retrieval \
+        models loadtest bench-pdfs bench-ingest
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -74,6 +75,9 @@ download: ## Download exactly the locked 10-K filings into data/raw and verify S
 ingest-filings: deps ## Parse, chunk, embed and index the downloaded 10-Ks into the shared library
 	$(BACKEND) docqa ingest-filings
 
+models: ## Download the embedding and reranker models into FASTEMBED_CACHE_DIR
+	$(BACKEND) docqa download-models
+
 check-llm: ## Send one tiny request to the answer and judge models; print their rate limits
 	$(BACKEND) docqa check-llm
 
@@ -114,3 +118,14 @@ eval-human: ## Export 20 judged answers for a manual check of the judge
 
 eval-agreement: ## Judge-human agreement (and Cohen's kappa) from the marked human-check file
 	$(BACKEND) docqa eval agreement
+
+# --- Benchmarks (fake LLM only; results land in benchmarks/results.md) ---
+
+loadtest: deps ## Locust at 1/5/10/25 users against a copy of the filings library (fake LLM)
+	$(BACKEND) --group bench python ../benchmarks/loadtest.py
+
+bench-pdfs: ## Print four locked 10-Ks to PDF (data/bench/pdfs) for the ingestion benchmark
+	node benchmarks/make_pdf_set.mjs
+
+bench-ingest: deps ## Ingestion pages/minute for the 10-K filings and the PDF set, concurrency 1 and 2
+	$(BACKEND) python ../benchmarks/ingest_throughput.py

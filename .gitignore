@@ -31,6 +31,10 @@ blob-report/
 # --- Data (reproduced by scripts, never committed) ---
 data/raw/
 data/uploads/
+data/bench/
+
+# --- Benchmark scratch output (summaries are written into benchmarks/results.md) ---
+benchmarks/out/
 
 # --- Eval scratch output (checkpoints in evals/checkpoints/ are committed) ---
 evals/.budget/

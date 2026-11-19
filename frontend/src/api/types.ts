@@ -70,3 +70,23 @@ export interface Passage {
   is_table: boolean
   text: string
 }
+
+export type StoredAnswerStatus = 'complete' | 'stopped' | 'failed'
+
+export interface StoredAnswer {
+  id: string
+  text: string
+  status: StoredAnswerStatus
+  refused: boolean
+  citations: Citation[]
+  latency_ms: number | null
+  created_at: string
+}
+
+/** A question saved on the server, with its answer (null if none was saved). */
+export interface StoredTurn {
+  question_id: string
+  question: string
+  asked_at: string
+  answer: StoredAnswer | null
+}

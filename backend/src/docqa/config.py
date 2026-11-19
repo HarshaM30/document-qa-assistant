@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # --- App ---
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
+    log_format: Literal["json", "text"] = "json"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     frontend_origin: str = "http://localhost:5173"
@@ -43,6 +44,9 @@ class Settings(BaseSettings):
     test_database_url: str = "postgresql+asyncpg://docqa:change-me@localhost:5434/docqa_test"
     db_pool_size: int = 5
     db_max_overflow: int = 5
+    db_pool_timeout_seconds: float = Field(default=10, gt=0)
+    db_pool_recycle_seconds: int = 1800
+    db_statement_timeout_ms: int = Field(default=60_000, ge=0)  # 0 disables
     redis_url: str = "redis://localhost:6380/0"
     test_redis_url: str = "redis://localhost:6380/1"
 
@@ -58,6 +62,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1024
     llm_timeout_seconds: float = 60
+    answer_timeout_seconds: float = Field(default=120, gt=0)
     llm_reasoning_effort: str = "low"
     groq_api_key: SecretStr = SecretStr("")
     judge_provider: str = "groq"
@@ -71,6 +76,8 @@ class Settings(BaseSettings):
     embedding_threads: int | None = 2
     reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     fastembed_cache_dir: Path = Path(".cache/fastembed")
+    model_files_check: Literal["off", "warn", "require"] = "warn"
+    model_max_concurrency: int = Field(default=2, ge=1)
 
     # --- Chunking / retrieval ---
     chunk_size_tokens: int = 512
@@ -96,7 +103,8 @@ class Settings(BaseSettings):
     # --- Uploads / worker ---
     upload_dir: Path = Path("data/uploads")
     max_upload_mb: int = 25
-    worker_max_jobs: int = 2
+    max_upload_pages: int = Field(default=2000, ge=1)
+    worker_max_jobs: int = 1
     worker_job_timeout_seconds: int = 1800
     ingest_max_retries: int = 3
     ingest_retry_base_delay_seconds: float = 5.0

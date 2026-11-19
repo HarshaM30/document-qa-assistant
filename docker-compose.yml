@@ -68,7 +68,9 @@ services:
       timeout: 5s
       retries: 12
       start_period: 15s
-    mem_limit: 1g
+    # The load test peaked at 1.57 GB (25 users, MODEL_MAX_CONCURRENCY=2); unbounded model
+    # concurrency went past 1.8 GB at 10 users. See benchmarks/results.md.
+    mem_limit: 1792m
 
   worker:
     <<: *backend
@@ -76,7 +78,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    mem_limit: 1536m
+    # One job (WORKER_MAX_JOBS=1) peaked at 1.48 GB on the largest filings; two at 3.2 GB.
+    mem_limit: 1792m
 
   frontend:
     build:

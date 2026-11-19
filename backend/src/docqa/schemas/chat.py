@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from docqa.generation.citations import Citation
 
 MAX_QUESTION_CHARS = 2000
 
@@ -29,3 +33,24 @@ class PassageOut(BaseModel):
     page_end: int | None
     is_table: bool
     text: str
+
+
+class AnswerOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    text: str
+    status: Literal["complete", "stopped", "failed"]
+    refused: bool
+    citations: list[Citation]
+    latency_ms: int | None
+    created_at: datetime
+
+
+class ChatTurnOut(BaseModel):
+    """A stored question and its answer (None if no answer was saved, e.g. a server crash)."""
+
+    question_id: uuid.UUID
+    question: str
+    asked_at: datetime
+    answer: AnswerOut | None

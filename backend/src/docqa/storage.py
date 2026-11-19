@@ -30,13 +30,24 @@ class StoredFile:
     sha256: str
 
 
+MAX_NAME_CHARS = 200
+
+
 def safe_display_name(filename: str | None, fallback: str = "document.pdf") -> str:
-    """Strip directories, control characters and odd whitespace from a client filename."""
+    """Strip directories, control and format characters (including bidi overrides that can
+    disguise an extension) and odd whitespace from a client filename; keep the extension
+    when shortening it."""
     name = (filename or "").replace("\\", "/").rsplit("/", 1)[-1]
     name = unicodedata.normalize("NFKC", name)
     name = "".join(ch for ch in name if unicodedata.category(ch)[0] != "C")
     name = re.sub(r"\s+", " ", name).strip(" .")
-    return name[:200] or fallback
+    if len(name) > MAX_NAME_CHARS:
+        stem, dot, ext = name.rpartition(".")
+        if dot and 0 < len(ext) <= 10:
+            name = stem[: MAX_NAME_CHARS - len(ext) - 1].rstrip(" .") + "." + ext
+        else:
+            name = name[:MAX_NAME_CHARS]
+    return name or fallback
 
 
 def upload_path(upload_dir: Path, workspace_id: uuid.UUID, document_id: uuid.UUID) -> Path:

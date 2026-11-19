@@ -61,10 +61,10 @@ def document_label(doc: Document) -> str:
     return doc.title
 
 
-def parse_file(source_type: str, path: Path) -> ParsedDocument:
+def parse_file(source_type: str, path: Path, max_pages: int | None = None) -> ParsedDocument:
     if source_type == SourceType.HTML_10K:
         return parse_10k(path.read_bytes())
-    return parse_pdf(path)
+    return parse_pdf(path, max_pages)
 
 
 @dataclass
@@ -224,7 +224,7 @@ async def run_ingestion(
     started = time.monotonic()
 
     await tracker.stage(JobStage.PARSING)
-    parsed = await asyncio.to_thread(parse_file, source_type, path)
+    parsed = await asyncio.to_thread(parse_file, source_type, path, settings.max_upload_pages)
 
     await tracker.stage(JobStage.CHUNKING)
     tokenizer = await asyncio.to_thread(lambda: embedder.tokenizer)

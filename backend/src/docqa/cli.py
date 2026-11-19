@@ -162,6 +162,21 @@ def check_llm() -> None:
         raise typer.Exit(1)
 
 
+@app.command("download-models")
+def download_models() -> None:
+    """Download the embedding and reranker models into FASTEMBED_CACHE_DIR (once)."""
+    from docqa.ingestion.embedding import get_embedder
+    from docqa.model_files import check_model_files
+    from docqa.retrieval.rerank import get_reranker
+
+    _setup_logging()
+    settings = get_settings()
+    get_embedder(settings).embed_query("warm up")
+    get_reranker(settings).score("warm up", ["warm up"])
+    for f in check_model_files(settings):
+        typer.echo(f"{f.kind}: {f.model} -> {f.path}")
+
+
 @app.command("reset-db")
 def reset_db(
     yes: Annotated[bool, typer.Option("--yes", help="Confirm dropping the database.")] = False,

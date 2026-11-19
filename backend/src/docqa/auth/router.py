@@ -7,7 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from docqa.auth.deps import CurrentUser, DbDep, SettingsDep
-from docqa.auth.passwords import hash_password, needs_rehash, verify_dummy, verify_password
+from docqa.auth.passwords import (
+    hash_password_async,
+    needs_rehash,
+    verify_dummy_async,
+    verify_password_async,
+)
 from docqa.auth.sessions import (
     clear_session_cookie,
     create_session,
@@ -24,7 +29,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def signup(
     body: SignupRequest, response: Response, db: DbDep, settings: SettingsDep
 ) -> UserOut:
-    user = User(email=body.email, password_hash=hash_password(body.password))
+    user = User(email=body.email, password_hash=await hash_password_async(body.password))
     db.add(user)
     try:
         await db.commit()
@@ -42,12 +47,12 @@ async def signup(
 async def login(body: Credentials, response: Response, db: DbDep, settings: SettingsDep) -> UserOut:
     user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if user is None:
-        verify_dummy(body.password)
+        await verify_dummy_async(body.password)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-    if not verify_password(user.password_hash, body.password):
+    if not await verify_password_async(user.password_hash, body.password):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if needs_rehash(user.password_hash):
-        user.password_hash = hash_password(body.password)
+        user.password_hash = await hash_password_async(body.password)
         await db.commit()
     token = await create_session(db, user.id, settings)
     set_session_cookie(response, token, settings)

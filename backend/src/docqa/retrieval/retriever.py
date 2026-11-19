@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any, Literal, Self
@@ -151,10 +152,43 @@ def _matcher(companies: tuple[tuple[str, str | None], ...]) -> CompanyMatcher:
 
 
 class Retriever:
-    def __init__(self, embedder: Embedder, reranker: Scorer, config: RetrievalConfig) -> None:
+    def __init__(
+        self,
+        embedder: Embedder,
+        reranker: Scorer,
+        config: RetrievalConfig,
+        max_concurrent_inference: int | None = None,
+        release_db_during_inference: bool = False,
+    ) -> None:
         self.embedder = embedder
+        # The API sets this: a request waiting for an inference slot must not hold a pooled
+        # connection, or under load plain reads queue behind reranks. The session's loaded
+        # objects are expired, which is fine as passages are plain copies by then.
+        self.release_db = release_db_during_inference
         self.reranker = reranker
         self.config = config
+        # ONNX grows a memory arena per concurrent run, so unbounded concurrency under
+        # load pushes the API past its memory limit; extra requests wait for a slot.
+        self._inference = (
+            asyncio.Semaphore(max_concurrent_inference) if max_concurrent_inference else None
+        )
+
+    async def _infer[R](self, fn: Callable[..., R], *args: Any) -> R:
+        """Run a model call in a thread, holding an inference slot until the thread ends."""
+        if self._inference is None:
+            return await asyncio.to_thread(fn, *args)
+        slot = self._inference
+        await slot.acquire()
+        future = asyncio.ensure_future(asyncio.to_thread(fn, *args))
+
+        def done(f: asyncio.Future[R]) -> None:
+            slot.release()
+            if not f.cancelled():
+                f.exception()  # retrieved, so a failure after cancellation isn't re-logged
+
+        future.add_done_callback(done)
+        # If the request is cancelled, the thread still runs to the end and keeps its slot.
+        return await asyncio.shield(future)
 
     async def retrieve(
         self,
@@ -165,14 +199,15 @@ class Retriever:
     ) -> list[Passage]:
         cfg = config or self.config
         scope = chunk_scope(workspace_id, cfg.index_config)
+        # Embed first, before any query checks out a connection.
+        embedding = (
+            await self._infer(self.embedder.embed_query, question) if cfg.use_vector else None
+        )
         subqueries = [SubQuery(None, None, None)]
         if cfg.metadata_filter:
             filings, companies = await visible_filings(db, workspace_id)
             flt = detect(question, _matcher(tuple(companies)))
             subqueries = plan_subqueries(flt, filings, cfg.decompose, cfg.decompose_by)
-        embedding = (
-            await asyncio.to_thread(self.embedder.embed_query, question) if cfg.use_vector else None
-        )
 
         results: list[list[Passage]] = []
         for sub in subqueries:
@@ -237,6 +272,8 @@ class Retriever:
 
         if cfg.use_rerank:
             texts = [f"{p.heading}\n{p.text}" if p.heading else p.text for p in passages]
-            scores = await asyncio.to_thread(self.reranker.score, question, texts)
+            if self.release_db:
+                await db.rollback()
+            scores = await self._infer(self.reranker.score, question, texts)
             passages = [replace(passages[i], rerank_score=scores[i]) for i in rerank_order(scores)]
         return passages[: cfg.top_n]

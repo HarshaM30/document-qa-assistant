@@ -10,7 +10,12 @@ def test_safe_display_name() -> None:
     assert safe_display_name("C:\\Users\\me\\Annual Report.pdf") == "Annual Report.pdf"
     assert safe_display_name("bad\x00name\n.pdf") == "badname.pdf"
     assert safe_display_name("") == "document.pdf"
-    assert len(safe_display_name("a" * 500 + ".pdf")) == 200
+    long_name = safe_display_name("a" * 500 + ".pdf")
+    assert len(long_name) == 200
+    assert long_name.endswith(".pdf")  # still accepted as a PDF upload
+    # A right-to-left override can make "...\u202efdp.exe" display as "...exe.pdf".
+    assert safe_display_name("invoice\u202efdp.exe") == "invoicefdp.exe"
+    assert safe_display_name("report\u200b.pdf") == "report.pdf"  # zero-width space
 
 
 def test_retry_backoff_is_exponential() -> None:

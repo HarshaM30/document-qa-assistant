@@ -41,12 +41,19 @@ def litellm_stream(spec: LLMSpec) -> Runnable[PromptValue, str]:
                 stream=True,
                 **spec.completion_kwargs(),
             )
-            async for chunk in response:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield normalize_markers(delta)
+            try:
+                async for chunk in response:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        yield normalize_markers(delta)
+            finally:
+                # On cancellation (client gone, deadline hit) close the provider stream now,
+                # which releases its HTTP connection and stops generation upstream.
+                aclose = getattr(response, "aclose", None)
+                if aclose is not None:
+                    await aclose()
 
     return RunnableGenerator(stream)
 

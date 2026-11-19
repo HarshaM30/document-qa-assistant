@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { readSse } from '../lib/sse'
-import { ApiError, apiRequest, errorFromResponse } from './client'
-import type { Citation } from './types'
+import { ApiError, apiFetch, apiRequest, errorFromResponse } from './client'
+import type { Citation, StoredTurn } from './types'
 
 export type AnswerState = 'streaming' | 'done' | 'refused' | 'stopped' | 'error'
 
 export interface ChatTurn {
   id: string
+  /** Server id of the question, once known (always set for turns loaded from history). */
+  questionId: string | null
   question: string
   answer: string
   state: AnswerState
@@ -25,13 +28,74 @@ function rateLimitNotice(error: ApiError): string {
   return `${error.message} You can ask again in ${when}.`
 }
 
-/** Chat turns for one workspace, plus ask/stop. Answers stream in token by token. */
+export const chatHistoryKey = (workspaceId: string) => ['chat-history', workspaceId] as const
+
+/** A stored question/answer as a chat turn, in the same states a live answer ends in. */
+export function storedTurn(t: StoredTurn): ChatTurn {
+  const base = {
+    id: t.question_id,
+    questionId: t.question_id,
+    question: t.question,
+    rateLimited: false,
+  }
+  const a = t.answer
+  if (!a) {
+    return {
+      ...base,
+      answer: '',
+      state: 'error',
+      citations: [],
+      notice: 'No answer was saved for this question.',
+      latencyMs: null,
+    }
+  }
+  const state: AnswerState =
+    a.status === 'stopped'
+      ? 'stopped'
+      : a.status === 'failed'
+        ? 'error'
+        : a.refused
+          ? 'refused'
+          : 'done'
+  return {
+    ...base,
+    answer: a.text,
+    state,
+    citations: a.citations,
+    notice: a.status === 'failed' ? 'This answer did not finish.' : null,
+    latencyMs: a.latency_ms,
+  }
+}
+
+/** Questions already asked in this workspace, loaded once when the chat opens. */
+export function useChatHistory(workspaceId: string) {
+  return useQuery({
+    queryKey: chatHistoryKey(workspaceId),
+    queryFn: () => apiFetch<StoredTurn[]>(`/workspaces/${workspaceId}/questions`),
+    // New turns are appended locally; refetching mid-conversation would only reorder them.
+    // Dropping the cache on unmount makes the next visit load the full history again.
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+}
+
+/** Chat turns for one workspace (stored history, then this visit's questions), plus
+ *  ask/stop. Answers stream in token by token. */
 export function useChat(workspaceId: string) {
-  const [turns, setTurns] = useState<ChatTurn[]>([])
+  const history = useChatHistory(workspaceId)
+  const [live, setLive] = useState<ChatTurn[]>([])
   const controller = useRef<AbortController | null>(null)
 
+  const turns = useMemo(() => {
+    const stored = (history.data ?? []).map(storedTurn)
+    const asked = new Set(live.map((t) => t.questionId).filter(Boolean))
+    return [...stored.filter((t) => !asked.has(t.questionId)), ...live]
+  }, [history.data, live])
+
   const update = useCallback((id: string, patch: (t: ChatTurn) => Partial<ChatTurn>) => {
-    setTurns((all) => all.map((t) => (t.id === id ? { ...t, ...patch(t) } : t)))
+    setLive((all) => all.map((t) => (t.id === id ? { ...t, ...patch(t) } : t)))
   }, [])
 
   // Abort an in-flight answer when leaving the page.
@@ -43,10 +107,11 @@ export function useChat(workspaceId: string) {
       const abort = new AbortController()
       controller.current = abort
       const id = crypto.randomUUID()
-      setTurns((all) => [
+      setLive((all) => [
         ...all,
         {
           id,
+          questionId: null,
           question,
           answer: '',
           state: 'streaming',
@@ -93,6 +158,7 @@ export function useChat(workspaceId: string) {
             finished = true
             update(id, (t) => ({
               state: t.state === 'refused' ? 'refused' : 'done',
+              questionId: typeof p.question_id === 'string' ? p.question_id : null,
               latencyMs: typeof p.latency_ms === 'number' ? p.latency_ms : null,
             }))
           } else if (event === 'error') {
@@ -126,5 +192,12 @@ export function useChat(workspaceId: string) {
   const stop = useCallback(() => controller.current?.abort(), [])
   const streaming = turns.some((t) => t.state === 'streaming')
 
-  return { turns, ask, stop, streaming }
+  return {
+    turns,
+    ask,
+    stop,
+    streaming,
+    historyLoading: history.isPending,
+    historyError: history.isError,
+  }
 }

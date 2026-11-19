@@ -114,6 +114,10 @@ class FakeLLM(CustomLLM):
         super().__init__()
         self._lock = threading.Lock()
         self.calls = 0
+        # Streams currently open and words sent so far; tests use these to check that a
+        # client disconnect really stops generation.
+        self.active_streams = 0
+        self.words_streamed = 0
         # Pause between streamed words so the UI's incremental rendering is observable.
         self.token_delay_seconds = 0.0
 
@@ -159,10 +163,18 @@ class FakeLLM(CustomLLM):
     async def astreaming(  # type: ignore[override]
         self, model: str, messages: list[Any], *args: Any, **kwargs: Any
     ) -> AsyncIterator[GenericStreamingChunk]:
-        for i, chunk in enumerate(self._chunks(messages)):
-            if i and self.token_delay_seconds:
-                await asyncio.sleep(self.token_delay_seconds)
-            yield chunk
+        with self._lock:
+            self.active_streams += 1
+        try:
+            for i, chunk in enumerate(self._chunks(messages)):
+                if i and self.token_delay_seconds:
+                    await asyncio.sleep(self.token_delay_seconds)
+                with self._lock:
+                    self.words_streamed += 1
+                yield chunk
+        finally:
+            with self._lock:
+                self.active_streams -= 1
 
 
 FAKE_LLM = FakeLLM()

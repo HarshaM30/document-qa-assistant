@@ -98,9 +98,13 @@ def _page_blocks(page: Any, number: int) -> list[Block]:
     return [block for _, block in positioned]
 
 
-def parse_pdf(path: Path) -> ParsedDocument:
+def parse_pdf(path: Path, max_pages: int | None = None) -> ParsedDocument:
     try:
         with pdfplumber.open(path) as pdf:
+            if max_pages is not None and len(pdf.pages) > max_pages:
+                raise DocumentParseError(
+                    f"The PDF has {len(pdf.pages)} pages; the limit is {max_pages}."
+                )
             sections = []
             for number, page in enumerate(pdf.pages, start=1):
                 blocks = _page_blocks(page, number)

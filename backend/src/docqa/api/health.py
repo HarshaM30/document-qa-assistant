@@ -45,4 +45,15 @@ async def health(request: Request, response: Response) -> dict[str, Any]:
     healthy = all(v == "ok" for v in checks.values())
     if not healthy:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return {"status": "ok" if healthy else "degraded", "version": __version__, "checks": checks}
+    return {
+        "status": "ok" if healthy else "degraded",
+        "version": __version__,
+        "checks": checks,
+        # Informational: missing models are downloaded on first use (MODEL_FILES_CHECK=warn).
+        "models": _model_status(request),
+    }
+
+
+def _model_status(request: Request) -> dict[str, str]:
+    files = getattr(request.app.state, "model_files", None) or []
+    return {f.kind: "ok" if f.present else "missing" for f in files} or {"check": "off"}

@@ -13,7 +13,7 @@ Local-only, memory-conscious, no paid services. Host ports: Postgres **5434**, R
 ```
 document-qa-assistant/
 ├── backend/
-│   ├── pyproject.toml            # uv project; dependency groups: dev, eval, bench
+│   ├── pyproject.toml            # uv project; dependency groups: dev, bench (Locust)
 │   ├── uv.lock
 │   ├── Dockerfile                # API and worker share one image
 │   ├── alembic.ini
@@ -23,7 +23,11 @@ document-qa-assistant/
 │   ├── src/docqa/
 │   │   ├── main.py               # FastAPI app factory, middleware, routers
 │   │   ├── config.py             # pydantic-settings, reads .env
-│   │   ├── cli.py                # Typer CLI: download-edgar, ingest-filings, reset-db, check-llm, `eval …`
+│   │   ├── cli.py                # Typer CLI: download-edgar, ingest-filings, download-models, reset-db, check-llm, `eval …`
+│   │   ├── log_config.py         # JSON (or key=value) log lines carrying the request/job ID
+│   │   ├── middleware.py         # request IDs, access log, body-size limits, last-resort 500
+│   │   ├── errors.py             # one error shape: {detail, code, request_id[, errors]}
+│   │   ├── model_files.py        # startup check that the ONNX model files are downloaded
 │   │   ├── db/
 │   │   │   ├── session.py        # async engine + session dependency
 │   │   │   ├── admin.py          # drop + recreate a throwaway database (E2E)
@@ -34,10 +38,10 @@ document-qa-assistant/
 │   │   │   ├── deps.py           # current_user dependency, CSRF check
 │   │   │   └── router.py         # /auth/signup, /auth/login, /auth/logout, /auth/me
 │   │   ├── api/
-│   │   │   ├── health.py         # /health (db + redis + model readiness)
+│   │   │   ├── health.py         # /health (db + redis; model files reported)
 │   │   │   ├── workspaces.py
 │   │   │   ├── documents.py      # upload, list, status, delete, passage lookup
-│   │   │   └── chat.py           # POST /workspaces/{id}/ask → SSE stream
+│   │   │   └── chat.py           # POST /workspaces/{id}/ask → SSE stream; GET …/questions (history)
 │   │   ├── schemas/              # Pydantic v2 request/response models
 │   │   ├── ingestion/
 │   │   │   ├── edgar.py          # EDGAR client: user agent, rate limiter, retries
@@ -114,8 +118,11 @@ document-qa-assistant/
 │   ├── reports/                  # timestamped reports (committed)
 │   └── .budget/                  # gitignored: today's LLM usage per model
 ├── benchmarks/
-│   ├── locustfile.py
-│   ├── ingest_throughput.py
+│   ├── locustfile.py             # login, list documents, ask (full SSE stream)
+│   ├── loadtest.py               # `make loadtest`: clone the library DB, start API + worker, run Locust per user count
+│   ├── ingest_throughput.py      # `make bench-ingest`: pages/min at worker concurrency 1 and 2
+│   ├── make_pdf_set.mjs          # `make bench-pdfs`: print four 10-Ks to PDF with Playwright's Chromium
+│   ├── report.py                 # machine specs; rewrites its own section of results.md
 │   └── results.md
 ├── data/
 │   ├── companies.yaml            # tickers + CIKs (5 companies)
@@ -155,8 +162,12 @@ document-qa-assistant/
 | PDF parsing | pdfplumber | MIT license; page-level text and table extraction |
 | Filing selection | For each company, the 3 most recent original 10-Ks on EDGAR (10-K/A excluded), resolved once and pinned in `data/filings.lock.json` | "Latest three" changes over time; the lockfile keeps the corpus and eval dataset reproducible |
 | Fake LLM | LiteLLM custom provider `fake/…` that returns a deterministic extractive answer from the top passages with `[n]` markers, or the refusal sentence | Streams like a real model; tests and CI need no network or key |
+| Worker concurrency | `WORKER_MAX_JOBS=1` (was 2) | Embedding is 95% of ingestion time and is CPU-bound, so a second job adds only 7–25% throughput but doubles peak memory (3.2 GB on the filings, past the worker's limit) |
 | Queue | arq on Redis; job state mirrored in an `ingestion_jobs` table (status, stage, progress %, attempts, error) | UI polls Postgres state; retries with exponential backoff |
 | Rate limit | Redis sliding window per user (per-minute and per-day) on `/ask`, checked and recorded atomically in one Lua script; rejected requests don't use quota; returns 429 with `Retry-After` | Protects the free-tier LLM quota |
+| Chat history | Every question gets an answer row with a `status`: `complete`, `failed` (error or `ANSWER_TIMEOUT_SECONDS`, with any partial text), or `stopped` (client disconnected, with the partial text). `GET /workspaces/{id}/questions` returns the latest 50 oldest-first, and the chat page loads it on open | A refresh shows exactly what the user saw, including cut-off answers |
+| Logging and errors | JSON log lines (`LOG_FORMAT=json`) with a request ID per API request (`X-Request-ID`, accepted from the client if well-formed) and per ingestion job; one access line per request. Every error body is `{detail, code, request_id}`; validation errors add `errors` and never echo the input | Lines from one request can be grepped together; clients get a stable `code` and a readable `detail` |
+| Model concurrency | At most `MODEL_MAX_CONCURRENCY` (2) embed/rerank calls run at once in the API; a cancelled request's thread keeps its slot until it ends. argon2 runs in a thread, at most 4 at once | ONNX grows a memory arena per concurrent run: unbounded, the 10-user load test peaked at 1.8 GB with a worse p95 than capped. Cap 2 peaks at 1.57 GB over the full load test (API Compose limit 1792 MB); cap 1 at 1.24 GB but doubles the 10-user answer p50. A request waiting for a slot releases its DB connection first (otherwise plain reads queued behind reranks: 1.3 s p50 at 25 users, now 9 ms). argon2 on the event loop stalled every stream during a login |
 | Ablation indexes | `chunks` table carries an `index_config` key (e.g. `section-512-64`, `naive-512-64`); `docqa eval index` adds ablation variants to the library filings under their own keys (the API only reads the default key), and evals query them through an eval-only workspace with the library attached | No schema churn per experiment; embedding dim stays fixed; each filing is parsed once for all variants |
 
 ---
@@ -239,13 +250,14 @@ document-qa-assistant/
 2. Sign up / log in pages with validation and error states.
 3. Workspaces page: list, create, rename, delete.
 4. Documents page: drag-and-drop upload, per-document status with progress bar, error + retry display; attach SEC filings library.
-5. Chat page: POST-based SSE reader, streaming render, stop button, refusal styling, rate-limit message (the API exposes `Retry-After` through CORS so the page can say when to try again). The conversation lives in the page; questions and answers are stored server-side but not yet listed back.
+5. Chat page: POST-based SSE reader, streaming render, stop button, refusal styling, rate-limit message (the API exposes `Retry-After` through CORS so the page can say when to try again). On open, the page loads the workspace's stored questions and answers (`GET /workspaces/{id}/questions`) and appends new turns after them, so a refresh keeps the conversation (added in Milestone 6).
 6. Citation chips → side panel showing source passage, document name, and Item/section or page.
 7. Playwright E2E with the fake LLM: sign up → create workspace → upload fixture PDF → wait for `done` → ask → click citation → passage visible. Also: login guard and bad credentials, a stream cut off mid-answer, and the per-minute rate limit. `make e2e` runs the API on port 8001 and the built frontend on 4173 (so dev servers can keep running), against a `docqa_e2e` database that `docqa reset-db` drops, recreates, and migrates on every run, and Redis DB 2. `FAKE_LLM_TOKEN_DELAY_MS` slows the fake model's stream so the test can see partial text before the answer finishes.
 8. CI: add a separate `e2e` job that starts Postgres + Redis service containers, runs migrations, starts API + worker with `LLM_PROVIDER=fake`, serves the built frontend, runs Playwright (Chromium only), and uploads the Playwright report as an artifact on failure.
 
 **Done when**
 - [x] All pages work against the real backend; refresh preserves the session.
+- [x] Refreshing the chat page restores the conversation from the server, citations included (E2E).
 - [x] Streaming is visibly incremental; partial answers survive network errors with an error notice.
 - [x] Clicking a citation shows the exact passage text that was cited.
 - [x] `npm run typecheck && npm run lint && npm run build` pass.
@@ -301,16 +313,19 @@ qa_v1 is run once with the final configuration. The baseline reports are kept as
 ### Milestone 6 — Load testing, benchmarks, hardening
 
 **Tasks**
-1. Locust scenario (fake LLM): login, list documents, ask (SSE consumed fully); report p50/p95/p99 and error rate at fixed user counts.
-2. Ingestion benchmark: pages/minute for the 15 filings and a PDF set, with worker concurrency 1 and 2.
-3. `benchmarks/results.md` with machine specs (chip, RAM, OS, Docker memory limit) and exact commands.
-4. Hardening: structured logging with request IDs, consistent error schema, timeouts on LLM calls, worker job timeouts, graceful SSE cancellation on client disconnect, upload sanitization, DB pool sizing, startup checks for model files.
+1. Locust scenario (fake LLM): login, list documents, ask (SSE consumed fully); report p50/p95/p99 and error rate at fixed user counts (1, 5, 10, 25). `make loadtest` clones the dev database (with the ingested library) into a throwaway `docqa_load` via `CREATE DATABASE … TEMPLATE`, so questions run the real hybrid retrieval and reranker over the 15 filings; time to first token and time to `done` are recorded as their own rows.
+2. Ingestion benchmark: pages/minute for the 15 filings and a PDF set (four 10-Ks printed to PDF with Playwright's Chromium), with worker concurrency 1 and 2, using the real arq worker on a fresh `docqa_bench` database.
+3. `benchmarks/results.md` with machine specs (chip, RAM, OS, Docker memory limit) and exact commands; each script rewrites its own section.
+4. Hardening: structured logging with request IDs, consistent error schema, timeouts on LLM calls (LiteLLM's per-request timeout plus `ANSWER_TIMEOUT_SECONDS` for the whole answer), worker job timeouts (a per-attempt deadline that is retried; arq's own timeout is a backstop), crash recovery (arq allows one try beyond the job's attempts, so a crash in the last one is recorded as failed), graceful SSE cancellation on client disconnect (the provider stream is closed and the partial answer saved as `stopped`), upload sanitization (body-size limit before parsing, page limit, bidi/format characters stripped from names, extension kept when shortening), DB pool sizing (pool timeout, recycle, statement timeout), startup checks for model files (`MODEL_FILES_CHECK`, `docqa download-models`), bounded model and argon2 concurrency (found by the load test).
+5. Chat history from Milestone 4 (see Milestone 4, task 5).
 
 **Done when**
-- [ ] Locust run reproducible via `make loadtest`; results table includes p95 and error rate.
-- [ ] Ingestion throughput recorded in pages/minute.
-- [ ] Tests cover: LLM timeout → `error` SSE event; client disconnect stops generation; worker crash mid-job → job retried.
-- [ ] No unhandled exceptions in logs during the load test.
+- [x] Locust run reproducible via `make loadtest`; results table includes p95 and error rate.
+- [x] Ingestion throughput recorded in pages/minute.
+- [x] Tests cover: LLM timeout → `error` SSE event; client disconnect stops generation; worker crash mid-job → job retried.
+- [x] No unhandled exceptions in logs during the load test.
+
+**Outcome** (`benchmarks/results.md`): 0% errors at 1–25 users and no ERROR records or tracebacks in the API and worker logs. Answers (retrieval + rerank over the 15 filings; fake LLM) take p50 1.2 s for one user and 2.6 s at 10 users; at 25 users the API is CPU-bound on the cross-encoder (~0.9 questions/s) and answers queue (p50 16 s), while logins and document lists stay under 0.6 s p99. Ingestion runs at 209 pages/min for the HTML filings and 260 for the PDF set with one job at a time. The load test found three problems, fixed here: unbounded model concurrency (memory), DB connections held while waiting for the models, and argon2 on the event loop. The ingestion benchmark changed the default worker concurrency to 1.
 
 ### Milestone 7 — Docs and release readiness
 

@@ -72,6 +72,12 @@ class JobStage(enum.StrEnum):
     DONE = "done"
 
 
+class AnswerStatus(enum.StrEnum):
+    COMPLETE = "complete"  # the answer (or refusal) finished streaming
+    STOPPED = "stopped"  # the client went away mid-answer; text is what was generated
+    FAILED = "failed"  # generation errored or timed out; text is what arrived before
+
+
 class SourceType(enum.StrEnum):
     PDF = "pdf"
     HTML_10K = "html_10k"
@@ -266,10 +272,12 @@ class IngestionJob(TimestampMixin, Base):
 
 class Question(TimestampMixin, Base):
     __tablename__ = "questions"
+    # History is read newest-first per workspace; the index also serves workspace lookups.
+    __table_args__ = (Index("ix_questions_workspace_created", "workspace_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     workspace_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
@@ -286,6 +294,9 @@ class Answer(TimestampMixin, Base):
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     refused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), default=AnswerStatus.COMPLETE, server_default="complete", nullable=False
+    )
     citations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
     model: Mapped[str | None] = mapped_column(String(100))
     latency_ms: Mapped[int | None] = mapped_column(Integer)

@@ -38,6 +38,9 @@ requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
+bench = [
+    "locust>=2.47.0",
+]
 dev = [
     "lxml-stubs>=0.5.1",
     "mypy>=2.4.1",

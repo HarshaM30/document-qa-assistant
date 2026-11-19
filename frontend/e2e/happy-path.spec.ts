@@ -77,6 +77,25 @@ test('sign up, upload a PDF, ask a question, and open the cited passage', async 
   await expect(refused).toHaveAttribute('data-state', 'refused', { timeout: 30_000 })
   await expect(refused).toContainText('Not in your documents')
   await expect(refused.getByTestId('citation-chip')).toHaveCount(0)
+
+  // After a refresh the conversation is loaded back from the server, citations included.
+  await page.reload()
+  const turns = page.getByTestId('chat-turn')
+  await expect(turns).toHaveCount(2)
+  await expect(turns.first()).toHaveAttribute('data-state', 'done')
+  await expect(turns.first()).toContainText("Where is the company's largest supplier located?")
+  await expect(turns.first().getByTestId('answer-text')).toContainText('Portugal')
+  await expect(turns.last()).toHaveAttribute('data-state', 'refused')
+  await turns.first().getByTestId('citation-chip').first().click()
+  await expect(page.getByTestId('passage-text')).toContainText(
+    "The company's largest supplier is located in Portugal.",
+  )
+
+  // New questions are appended after the restored ones.
+  await page.getByLabel('Question').fill('Where is the largest supplier?')
+  await page.getByLabel('Question').press('Enter')
+  await expect(turns).toHaveCount(3)
+  await expect(turns.last()).toHaveAttribute('data-state', 'done', { timeout: 30_000 })
 })
 
 test('protected pages require login, and bad credentials show an error', async ({ page }) => {
