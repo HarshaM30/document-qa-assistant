@@ -22,7 +22,7 @@ Mark exactly one box per answer by changing `[ ]` to `[x]`, then run `make eval-
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -140,7 +140,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -273,7 +273,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -372,7 +372,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -490,7 +490,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -593,7 +593,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -657,7 +657,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -734,7 +734,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -850,7 +850,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -940,7 +940,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1096,7 +1096,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1225,7 +1225,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1322,7 +1322,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1415,7 +1415,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1522,7 +1522,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1619,7 +1619,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1754,7 +1754,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1876,7 +1876,7 @@ Unsupported claims named by the judge:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -1965,7 +1965,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:
@@ -2055,7 +2055,7 @@ Notes:
 
 **Your call**
 
-- [ ] Agree with the judge
+- [x] Agree with the judge
 - [ ] Disagree with the judge
 
 Notes:

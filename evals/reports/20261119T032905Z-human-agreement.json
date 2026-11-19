@@ -1,0 +1,17 @@
+{
+  "kind": "human-agreement",
+  "created_at": "20261119T032905Z",
+  "dataset": "qa_v1@3a91ad46",
+  "file": "qa_v1-edc1301adb77.md",
+  "run_hash": "edc1301adb77",
+  "judge_model": "groq/qwen/qwen3.8-27b",
+  "marked": 20,
+  "agreed": 20,
+  "agreement": 1.0,
+  "kappa": 1.0,
+  "unmarked": [],
+  "confusion": {
+    "judge faithful / human faithful": 19,
+    "judge unfaithful / human unfaithful": 1
+  }
+}

@@ -269,7 +269,7 @@ document-qa-assistant/
 - [x] `make eval-retrieval` and `make eval-ablations` produce reports with no network calls to any LLM.
 - [x] `make eval-generate` can be interrupted and resumed without repeating completed items, and stops cleanly when the budget is reached.
 - [x] Judge model ≠ answer model is enforced.
-- [ ] Human-check file is exported; after marking, `make eval-agreement` reports the agreement rate. (Exported to `evals/human_check/`; waiting on manual marks.)
+- [x] Human-check file is exported; after marking, `make eval-agreement` reports the agreement rate. (20 marked: 100% agreement, Cohen's kappa 1.00; report `evals/reports/20261119T032905Z-human-agreement.md`.)
 - [x] Dataset version is recorded in every report.
 
 ### Milestone 6 — Load testing, benchmarks, hardening
