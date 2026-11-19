@@ -56,6 +56,7 @@ document-qa-assistant/
 │   │   │   ├── keyword.py        # Postgres FTS (tsvector + websearch_to_tsquery, terms OR-ed)
 │   │   │   ├── fusion.py         # reciprocal rank fusion
 │   │   │   ├── rerank.py         # fastembed cross-encoder
+│   │   │   ├── query_filters.py  # companies/fiscal years in the question → filings; decomposition
 │   │   │   └── retriever.py      # configurable pipeline (used by API and evals)
 │   │   ├── generation/
 │   │   │   ├── llm.py            # LiteLLM factory from env (provider + model)
@@ -104,9 +105,10 @@ document-qa-assistant/
 │       └── happy-path.spec.ts    # sign up → upload → ask → open citation; auth; stream errors; rate limit
 ├── evals/
 │   ├── datasets/
-│   │   ├── qa_v1.jsonl           # 50 questions with gold answers + source quotes
+│   │   ├── qa_v1.jsonl           # 50 questions with gold answers + source quotes (held-out test set)
+│   │   ├── dev_v1.jsonl          # 25 tuning questions (Milestone 5b); the only set tuning may use
 │   │   └── CHANGELOG.md          # dataset versioning notes
-│   ├── configs/                  # ablations.yaml + final.yaml
+│   ├── configs/                  # ablations.yaml, tuning.yaml (dev set only), final.yaml
 │   ├── checkpoints/              # generation-eval JSONL checkpoints (committed, so runs resume anywhere)
 │   ├── human_check/              # exported markdown for manual agree/disagree
 │   ├── reports/                  # timestamped reports (committed)
@@ -144,7 +146,8 @@ document-qa-assistant/
 | Reranker | `Xenova/ms-marco-MiniLM-L-6-v2` via fastembed `TextCrossEncoder`, batch size 4 | ONNX, no PyTorch, ~90 MB. Batches of 16 push the API past 1 GB at peak; batches of 4 peak around 720 MB with the embedder loaded, at the same speed (~0.7 s for 30 passages) |
 | Vector index | pgvector HNSW, cosine | Good recall/latency without tuning lists |
 | Keyword search | Generated `tsvector` column + GIN index, `websearch_to_tsquery` over the question's terms joined with `or`, ranked by `ts_rank_cd` | Native, no extra service; plain `websearch_to_tsquery` ANDs every word, so a natural-language question rarely matches anything |
-| Fusion | RRF with k=60 over top-30 vector + top-30 keyword; the top 30 fused results go to the reranker | Standard, parameter-light |
+| Fusion | RRF with k=60 over top-30 vector + top-30 keyword; the top 30 fused results go to the reranker | Standard, parameter-light. Pools of 20, 50 and 100 were all worse on the dev set (Milestone 5b) |
+| Metadata filter | Companies (registered names + aliases such as AWS, J&J) and fiscal years named in the question restrict retrieval to the matching library filings; a year without its own 10-K maps to the earliest later filing that reports it, a year no filing covers is ignored. Uploaded documents are never filtered out. Questions naming several companies run one retrieval per company, interleaved round-robin | Chosen on the dev set in Milestone 5b (recall@10 47.5% → 87.5%). Splitting per fiscal year as well hurt year-over-year questions, because one 10-K already reports both years |
 | Tables | Each table emitted as its own chunk, rendered as `Row label \| Column header: value` lines with the table caption and section prepended | Keeps numbers attached to their meaning; never split mid-row |
 | Citations | Prompt numbers context passages `[1]..[n]`; server maps markers to chunk → (document, Item/section or page) and sends a `citations` SSE event. Lenticular/fullwidth brackets (`【3】`, which gpt-oss emits) are rewritten to `[3]` as tokens stream, and gpt-oss's line-referenced form `[3†L9-L10]` counts as passage 3 (found by the generation eval) | Exact, verifiable sources; frontend fetches the passage on click |
 | Refusal | Two layers: (1) if retrieval finds nothing, or the best rerank score < `REFUSAL_MIN_RERANK_SCORE` → refuse without calling the LLM (with reranking off, only the empty case applies); (2) prompt instructs a fixed refusal sentence, detected server-side | Saves LLM calls and makes refusal measurable |
@@ -271,6 +274,29 @@ document-qa-assistant/
 - [x] Judge model ≠ answer model is enforced.
 - [x] Human-check file is exported; after marking, `make eval-agreement` reports the agreement rate. (20 marked: 100% agreement, Cohen's kappa 1.00; report `evals/reports/20261119T032905Z-human-agreement.md`.)
 - [x] Dataset version is recorded in every report.
+
+### Milestone 5b — Retrieval improvements, measured on a dev set
+
+Baseline retrieval on qa_v1 was weak (recall@10 42.5%, MRR 0.181), so retrieval is tuned before
+Milestone 6. qa_v1 stays the held-out test set: every choice is made on a separate dev set, and
+qa_v1 is run once with the final configuration. The baseline reports are kept as they are.
+
+**Tasks**
+1. Dev set `evals/datasets/dev_v1.jsonl`: 25 new questions in the qa_v1 categories and proportions, each with a verified source quote (and XBRL concept or note for numbers). No question or quote shared with qa_v1.
+2. Tuning plan `evals/configs/tuning.yaml`, pinned to the dev set (`docqa eval ablations --plan-file` refuses any other dataset). Steps are cumulative; a change is kept if it raises recall@10, or keeps recall@10 and raises MRR (rule fixed after step 1). No LLM calls.
+3. Try, in order: (1) a short context header on table chunks (company, fiscal year, Item, table title) instead of the long section heading; (2) company + fiscal-year metadata filtering; (3) query decomposition for cross-company and year-over-year questions; (4) a larger candidate pool before reranking; (5) section-aware vs naive chunking again, after the changes above.
+4. Run the retrieval eval and the generation eval once on qa_v1 with the final config, and write a before/after report against the Milestone 5 baseline (`docqa eval compare`, built from the saved report JSONs).
+
+**Outcome on the dev set** (report `evals/reports/20261119T050513Z-tuning.md`): kept the metadata filter (recall@10 47.5% → 85.0%) and decomposition per company (87.5%; per company *and* year was worse, 82.5%). Not kept: the short header (42.5% on tables only, 30.0% on all chunks; 77.5% when re-checked with the final retrieval settings), larger or smaller pools (77.5–82.5%), and naive chunking (72.5%). Built as `ChunkingConfig.context` (`CHUNK_CONTEXT`, default `heading`) and `RETRIEVAL_METADATA_FILTER` / `RETRIEVAL_DECOMPOSE` / `RETRIEVAL_DECOMPOSE_BY` (defaults on / on / `company`).
+
+**Done when**
+- [x] `dev_v1` passes `make eval-verify` (25/25 quotes) and `make eval-xbrl` (0 unexplained); unit tests check it shares no questions or quotes with qa_v1.
+- [x] `make eval-tune` reproduces the tuning report on the dev set with no LLM calls, and refuses qa_v1.
+- [x] Each of the five changes is measured (recall@10, MRR) and kept only if it helps on the dev set.
+- [x] `make eval-final-retrieval` on qa_v1 with the final config.
+- [x] Generation eval on qa_v1 with the final config, and a before/after report against the baseline.
+
+**Outcome on qa_v1 (held out, run once)**, report `evals/reports/20261119T053241Z-before-after.md`: recall@10 42.5% → 62.5%, MRR 0.181 → 0.310, gold passage in the prompt 35.0% → 60.0%, numeric correctness 47.2% → 55.6%, citation correctness 47.8% → 65.5%, refusal precision 37.0% → 47.6% (recall stays 100%), faithfulness 95.7% → 100%. Mean retrieval latency rose from 1.03 s to 1.41 s (a second rerank for cross-company questions). The test-set gain is smaller than on the dev set (47.5% → 87.5%), as expected when choices are made on dev. Year-over-year retrieval did not improve (recall@10 37.5%), and F06 and F11 went from correct to wrong (F06 is now a false refusal). These are left for later work rather than tuned against qa_v1.
 
 ### Milestone 6 — Load testing, benchmarks, hardening
 

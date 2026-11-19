@@ -9,7 +9,7 @@ FRONTEND := npm --prefix frontend
         lint typecheck fmt test-unit test-int test e2e \
         resolve-filings download ingest-filings check-llm \
         eval-index eval-verify eval-xbrl eval-retrieval eval-ablations eval-generate \
-        eval-report eval-human eval-agreement
+        eval-report eval-human eval-agreement eval-tune-index eval-tune eval-final-retrieval
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -93,6 +93,15 @@ eval-retrieval: deps ## Recall@5/10 and MRR for the default retrieval config (no
 
 eval-ablations: deps ## Retrieval ablations: chunk size, table-aware, search mode, rerank (no LLM)
 	$(BACKEND) docqa eval ablations
+
+eval-tune-index: deps ## Build the chunk variants used by the retrieval tuning plan
+	$(BACKEND) docqa eval index --plan-file ../evals/configs/tuning.yaml
+
+eval-tune: deps ## Retrieval tuning on the dev set only (evals/configs/tuning.yaml; no LLM)
+	$(BACKEND) docqa eval ablations --plan-file ../evals/configs/tuning.yaml
+
+eval-final-retrieval: deps ## Recall@5/10 and MRR on qa_v1 for the final config (no LLM)
+	$(BACKEND) docqa eval retrieval --config-file ../evals/configs/final.yaml
 
 eval-generate: deps ## Generation eval with the answer + judge models; resumable, stops at the daily budget
 	$(BACKEND) docqa eval generate

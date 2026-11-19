@@ -1,0 +1,52 @@
+# Milestone 5b: retrieval tuning. None of these call an LLM.
+#
+# Tuning runs ONLY on the dev set below; `docqa eval ablations --plan` refuses any other
+# dataset. qa_v1 is the held-out test set and is used once, with the final config.
+#
+# Steps are cumulative: each group starts from the winner of the previous one (written out
+# in full in its overrides). Decision rule, fixed before step 2: a change is kept if it
+# raises recall@10, or keeps recall@10 and raises MRR. With 20 answerable dev questions one
+# question moves recall@10 by 2.5-5 points, so smaller differences are not acted on either way.
+dataset: dev_v1.jsonl
+
+indexes:
+  - {strategy: section, size: 512, overlap: 64}
+  - {strategy: section, size: 512, overlap: 64, context: tables}
+  - {strategy: section, size: 512, overlap: 64, context: all}
+  - {strategy: naive, size: 512, overlap: 64}
+
+base:
+  index_config: section-512-64
+  use_vector: true
+  use_keyword: true
+  use_rerank: true
+  top_n: 10            # recall@10 needs at least 10 results
+
+titles:
+  context_header: "1. Chunk headers: long section headings vs a short context header"
+  metadata_filter: "2. Metadata filtering by company and fiscal year"
+  decompose: "3. Query decomposition (one retrieval per company and filing)"
+  candidate_pool: "4. Candidate pool size before reranking"
+  chunking: "5. Section-aware vs naive chunking, with the changes above"
+
+groups:
+  context_header:
+    long headings (baseline): {}
+    short header on tables: {index_config: section-512-64-ctx-tables}
+    short header on all chunks: {index_config: section-512-64-ctx-all}
+  metadata_filter:
+    no filter (step 1 winner): {}
+    company + fiscal-year filter: {metadata_filter: true}
+  decompose:
+    filter, one retrieval (step 2 winner): {metadata_filter: true}
+    filter + decomposition: {metadata_filter: true, decompose: true}
+    filter + decomposition by company only: {metadata_filter: true, decompose: true, decompose_by: company}
+  candidate_pool:
+    20 candidates: {metadata_filter: true, decompose: true, decompose_by: company, vector_k: 20, keyword_k: 20, rerank_candidates: 20}
+    30 candidates (step 3 winner): {metadata_filter: true, decompose: true, decompose_by: company}
+    50 candidates: {metadata_filter: true, decompose: true, decompose_by: company, vector_k: 50, keyword_k: 50, rerank_candidates: 50}
+    100 candidates: {metadata_filter: true, decompose: true, decompose_by: company, vector_k: 100, keyword_k: 100, rerank_candidates: 100, ef_search: 100}
+  chunking:
+    section-aware, long headings (step 4 winner): {metadata_filter: true, decompose: true, decompose_by: company}
+    section-aware, short header on tables (re-check of step 1): {metadata_filter: true, decompose: true, decompose_by: company, index_config: section-512-64-ctx-tables}
+    naive fixed windows: {metadata_filter: true, decompose: true, decompose_by: company, index_config: naive-512-64}

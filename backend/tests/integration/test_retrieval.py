@@ -146,3 +146,68 @@ async def test_pipeline_stages_and_ordering(
         variant = retriever.config.with_(index_config="naive-256-32")
         assert await retriever.retrieve(db, wid, QUESTION, variant)
         await db.rollback()
+
+
+async def test_metadata_filter_and_decomposition_stay_in_workspace(
+    app: FastAPI,
+    client: AsyncClient,
+    other_client: AsyncClient,
+    settings: Any,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    # Two copies of the sample PDF become library filings of two companies; only workspace A
+    # attaches them.
+    ws_a = await ingested_workspace(client, settings, "a@example.org")
+    ws_b = await ingested_workspace(other_client, settings, "b@example.org")
+    async with db_sessionmaker() as db:
+        [doc_a] = await _doc_ids(db, ws_a["id"])
+        [doc_b] = await _doc_ids(db, ws_b["id"])
+        for doc_id, ticker, name in (
+            (doc_a, "CNTS", "Contoso Ltd"),
+            (doc_b, "NWND", "Northwind Inc."),
+        ):
+            await db.execute(
+                update(Document)
+                .where(Document.id == doc_id)
+                .values(
+                    is_library=True,
+                    workspace_id=None,
+                    ticker=ticker,
+                    company_name=name,
+                    fiscal_year=2025,
+                )
+            )
+        await db.commit()
+    resp = await client.post(
+        f"/workspaces/{ws_a['id']}/library", json={"document_ids": [str(doc_a), str(doc_b)]}
+    )
+    assert resp.status_code == 200, resp.text
+
+    retriever = _retriever(app)
+    filtered = retriever.config.with_(metadata_filter=True, top_n=4)
+    decomposed = filtered.with_(decompose=True)
+    wid = uuid.UUID(ws_a["id"])
+    async with db_sessionmaker() as db:
+
+        async def docs(question: str, cfg: Any) -> list[uuid.UUID]:
+            return [p.document_id for p in await retriever.retrieve(db, wid, question, cfg)]
+
+        assert set(await docs(QUESTION, filtered)) == {doc_a, doc_b}
+        assert set(await docs("Where is Northwind's largest supplier?", filtered)) == {doc_b}
+        assert set(await docs("Where is Contoso's largest supplier?", filtered)) == {doc_a}
+        # A year neither filed is ignored rather than filtering everything out.
+        assert set(await docs("Northwind's largest supplier in fiscal 2019?", filtered)) == {doc_b}
+        # Decomposition: one retrieval per company, interleaved.
+        both = await docs(
+            "Compare Contoso and Northwind: where is the largest supplier?", decomposed
+        )
+        assert len(both) == 4
+        assert {both[0], both[1]} == {doc_a, doc_b}
+        # Workspace B attached nothing, so naming the companies finds nothing.
+        for cfg in (filtered, decomposed):
+            assert (
+                await retriever.retrieve(
+                    db, uuid.UUID(ws_b["id"]), "Compare Contoso and Northwind suppliers", cfg
+                )
+                == []
+            )

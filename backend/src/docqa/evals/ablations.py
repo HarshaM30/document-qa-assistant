@@ -93,13 +93,16 @@ def render_retrieval(run: RetrievalRun, title: str = "Retrieval eval") -> str:
             ("vector", cfg.use_vector),
             ("keyword", cfg.use_keyword),
             ("rerank", cfg.use_rerank),
+            ("metadata filter", cfg.metadata_filter),
+            ("decomposition", cfg.decompose),
         )
         if on
     ]
     lines = [
         f"# {title}",
         "",
-        f"Index `{cfg.index_config}`, stages: {' + '.join(stages)}, "
+        f"Index `{cfg.index_config}`, stages: {' + '.join(stages)}, candidates "
+        f"{cfg.vector_k} vector / {cfg.keyword_k} keyword / {cfg.rerank_candidates} reranked, "
         f"{run.overall.n} answerable questions. No LLM calls.",
         "",
         table(_headers(run.ks), [_metric_row("overall", run)]),
@@ -141,10 +144,15 @@ _GROUP_TITLES = {
 }
 
 
-def render_ablations(runs: dict[str, dict[str, RetrievalRun]]) -> str:
+def render_ablations(
+    runs: dict[str, dict[str, RetrievalRun]],
+    titles: dict[str, str] | None = None,
+    heading: str = "Retrieval ablations",
+) -> str:
+    titles = _GROUP_TITLES | (titles or {})
     any_run = next(iter(next(iter(runs.values())).values()))
     lines = [
-        "# Retrieval ablations",
+        f"# {heading}",
         "",
         f"{any_run.overall.n} answerable questions; every variant retrieves the top "
         f"{any_run.config.top_n}. No LLM calls. Latency is per question on this machine, "
@@ -153,7 +161,7 @@ def render_ablations(runs: dict[str, dict[str, RetrievalRun]]) -> str:
     for group, variants in runs.items():
         lines += [
             "",
-            f"## {_GROUP_TITLES.get(group, group)}",
+            f"## {titles.get(group, group)}",
             "",
             table(
                 _headers(any_run.ks),

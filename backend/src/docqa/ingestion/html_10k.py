@@ -34,6 +34,17 @@ ITEM_ORDER = [
     "9", "9A", "9B", "9C", "10", "11", "12", "13", "14", "15", "16",
 ]  # fmt: skip
 _RANK = {code: i for i, code in enumerate(ITEM_ORDER)}
+# Short Item names for compact chunk headers.
+ITEM_SHORT_NAMES = {
+    "1": "Business", "1A": "Risk Factors", "1B": "Unresolved Staff Comments",
+    "1C": "Cybersecurity", "2": "Properties", "3": "Legal Proceedings",
+    "4": "Mine Safety Disclosures", "5": "Market for Common Equity", "6": "Reserved",
+    "7": "MD&A", "7A": "Market Risk", "8": "Financial Statements",
+    "9": "Changes in Accountants", "9A": "Controls and Procedures", "9B": "Other Information",
+    "9C": "Foreign Jurisdictions", "10": "Directors and Officers",
+    "11": "Executive Compensation", "12": "Security Ownership", "13": "Related Transactions",
+    "14": "Accountant Fees", "15": "Exhibits", "16": "Form 10-K Summary",
+}  # fmt: skip
 
 _HEADING = re.compile(
     r"^(?:part\s+[iv]+\s*[,.\-\u2013\u2014:]?\s*)?item\s+(\d{1,2}[a-c]?)\s*[.:\-\u2013\u2014]*\s*"

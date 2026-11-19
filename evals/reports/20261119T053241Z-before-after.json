@@ -1,0 +1,11 @@
+{
+  "kind": "before-after",
+  "created_at": "20261119T053241Z",
+  "dataset": "qa_v1@3a91ad46",
+  "inputs": {
+    "before_retrieval": "20261118T031558Z-retrieval.json",
+    "after_retrieval": "20261119T050622Z-retrieval.json",
+    "before_generation": "20261118T034534Z-generation.json",
+    "after_generation": "20261119T053223Z-generation.json"
+  }
+}

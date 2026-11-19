@@ -75,11 +75,15 @@ class Settings(BaseSettings):
     # --- Chunking / retrieval ---
     chunk_size_tokens: int = 512
     chunk_overlap_tokens: int = 64
+    chunk_context: Literal["heading", "tables", "all"] = "heading"
     retrieval_vector_top_k: int = 30
     retrieval_keyword_top_k: int = 30
     retrieval_ef_search: int = 100
     rrf_k: int = 60
     retrieval_rerank_candidates: int = 30
+    retrieval_metadata_filter: bool = True
+    retrieval_decompose: bool = True
+    retrieval_decompose_by: Literal["filing", "company"] = "company"
     rerank_enabled: bool = True
     rerank_top_n: int = 6
     rerank_batch_size: int = 4

@@ -1,0 +1,453 @@
+{
+  "kind": "xbrl",
+  "created_at": "20261119T033532Z",
+  "dataset": "dev_v1@98670936",
+  "counts": {
+    "match": 10,
+    "mismatch": 0,
+    "missing": 0,
+    "explained": 17,
+    "unexplained": 0
+  },
+  "unexplained": [],
+  "results": [
+    {
+      "id": "DF01",
+      "fact": {
+        "value": 164000.0,
+        "unit": "employees",
+        "company": "AAPL",
+        "fiscal_year": 2024,
+        "xbrl_concept": null,
+        "xbrl_note": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+    },
+    {
+      "id": "DF02",
+      "fact": {
+        "value": 309926.0,
+        "unit": "employees",
+        "company": "JPM",
+        "fiscal_year": 2023,
+        "xbrl_concept": null,
+        "xbrl_note": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+    },
+    {
+      "id": "DF03",
+      "fact": {
+        "value": 228000.0,
+        "unit": "employees",
+        "company": "MSFT",
+        "fiscal_year": 2025,
+        "xbrl_concept": null,
+        "xbrl_note": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+    },
+    {
+      "id": "DF03",
+      "fact": {
+        "value": 125000.0,
+        "unit": "employees",
+        "company": "MSFT",
+        "fiscal_year": 2025,
+        "xbrl_concept": null,
+        "xbrl_note": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+    },
+    {
+      "id": "DF06",
+      "fact": {
+        "value": 0.26,
+        "unit": "USD per share",
+        "company": "AAPL",
+        "fiscal_year": 2025,
+        "xbrl_concept": null,
+        "xbrl_note": "Quarterly rate; XBRL dividends-per-share facts are annual totals."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Quarterly rate; XBRL dividends-per-share facts are annual totals."
+    },
+    {
+      "id": "DT01",
+      "fact": {
+        "value": 29984.0,
+        "unit": "USD millions",
+        "company": "AAPL",
+        "fiscal_year": 2024,
+        "xbrl_concept": null,
+        "xbrl_note": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+    },
+    {
+      "id": "DT02",
+      "fact": {
+        "value": 40540.0,
+        "unit": "USD millions",
+        "company": "MSFT",
+        "fiscal_year": 2024,
+        "xbrl_concept": null,
+        "xbrl_note": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+    },
+    {
+      "id": "DT03",
+      "fact": {
+        "value": 39834.0,
+        "unit": "USD millions",
+        "company": "AMZN",
+        "fiscal_year": 2024,
+        "xbrl_concept": null,
+        "xbrl_note": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+    },
+    {
+      "id": "DT04",
+      "fact": {
+        "value": 177556.0,
+        "unit": "USD millions",
+        "company": "JPM",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:Revenues",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 177556000000.0,
+        "start": "2024-01-01",
+        "end": "2024-12-31",
+        "accession": "0000019617-25-000270",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DT05",
+      "fact": {
+        "value": 14066.0,
+        "unit": "USD millions",
+        "company": "JNJ",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:NetIncomeLoss",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 14066000000.0,
+        "start": "2024-01-01",
+        "end": "2024-12-29",
+        "accession": "0000200406-25-000038",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DT06",
+      "fact": {
+        "value": 131200.0,
+        "unit": "USD millions",
+        "company": "AMZN",
+        "fiscal_year": 2023,
+        "xbrl_concept": null,
+        "xbrl_note": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+    },
+    {
+      "id": "DY01",
+      "fact": {
+        "value": 96169.0,
+        "unit": "USD millions",
+        "company": "AAPL",
+        "fiscal_year": 2024,
+        "xbrl_concept": null,
+        "xbrl_note": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+    },
+    {
+      "id": "DY01",
+      "fact": {
+        "value": 85200.0,
+        "unit": "USD millions",
+        "company": "AAPL",
+        "fiscal_year": 2023,
+        "xbrl_concept": null,
+        "xbrl_note": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+    },
+    {
+      "id": "DY02",
+      "fact": {
+        "value": 62032.0,
+        "unit": "USD millions",
+        "company": "MSFT",
+        "fiscal_year": 2024,
+        "xbrl_concept": null,
+        "xbrl_note": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+    },
+    {
+      "id": "DY02",
+      "fact": {
+        "value": 54734.0,
+        "unit": "USD millions",
+        "company": "MSFT",
+        "fiscal_year": 2023,
+        "xbrl_concept": null,
+        "xbrl_note": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Segment or product-line figure; companyfacts only carries non-dimensional facts."
+    },
+    {
+      "id": "DY03",
+      "fact": {
+        "value": 91797.0,
+        "unit": "USD millions",
+        "company": "JPM",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:NoninterestExpense",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 91797000000.0,
+        "start": "2024-01-01",
+        "end": "2024-12-31",
+        "accession": "0000019617-25-000270",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DY03",
+      "fact": {
+        "value": 87172.0,
+        "unit": "USD millions",
+        "company": "JPM",
+        "fiscal_year": 2023,
+        "xbrl_concept": "us-gaap:NoninterestExpense",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 87172000000.0,
+        "start": "2023-01-01",
+        "end": "2023-12-31",
+        "accession": "0000019617-24-000225",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DY04",
+      "fact": {
+        "value": 166000.0,
+        "unit": "employees",
+        "company": "AAPL",
+        "fiscal_year": 2025,
+        "xbrl_concept": null,
+        "xbrl_note": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+    },
+    {
+      "id": "DY04",
+      "fact": {
+        "value": 164000.0,
+        "unit": "employees",
+        "company": "AAPL",
+        "fiscal_year": 2024,
+        "xbrl_concept": null,
+        "xbrl_note": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+    },
+    {
+      "id": "DC01",
+      "fact": {
+        "value": 93736.0,
+        "unit": "USD millions",
+        "company": "AAPL",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:NetIncomeLoss",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 93736000000.0,
+        "start": "2023-10-01",
+        "end": "2024-09-28",
+        "accession": "0000320193-24-000123",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DC01",
+      "fact": {
+        "value": 88136.0,
+        "unit": "USD millions",
+        "company": "MSFT",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:NetIncomeLoss",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 88136000000.0,
+        "start": "2023-07-01",
+        "end": "2024-06-30",
+        "accession": "0000950170-24-087843",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DC02",
+      "fact": {
+        "value": 59248.0,
+        "unit": "USD millions",
+        "company": "AMZN",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:NetIncomeLoss",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 59248000000.0,
+        "start": "2024-01-01",
+        "end": "2024-12-31",
+        "accession": "0001018724-25-000004",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DC02",
+      "fact": {
+        "value": 58471.0,
+        "unit": "USD millions",
+        "company": "JPM",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:NetIncomeLoss",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 58471000000.0,
+        "start": "2024-01-01",
+        "end": "2024-12-31",
+        "accession": "0000019617-25-000270",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DC03",
+      "fact": {
+        "value": 140800.0,
+        "unit": "employees",
+        "company": "JNJ",
+        "fiscal_year": 2025,
+        "xbrl_concept": null,
+        "xbrl_note": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+    },
+    {
+      "id": "DC03",
+      "fact": {
+        "value": 228000.0,
+        "unit": "employees",
+        "company": "MSFT",
+        "fiscal_year": 2025,
+        "xbrl_concept": null,
+        "xbrl_note": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+      },
+      "status": "explained",
+      "xbrl": null,
+      "detail": "Stated in the text; XBRL has no matching non-dimensional annual fact."
+    },
+    {
+      "id": "DC04",
+      "fact": {
+        "value": 391035.0,
+        "unit": "USD millions",
+        "company": "AAPL",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 391035000000.0,
+        "start": "2023-10-01",
+        "end": "2024-09-28",
+        "accession": "0000320193-24-000123",
+        "form": "10-K"
+      },
+      "detail": ""
+    },
+    {
+      "id": "DC04",
+      "fact": {
+        "value": 637959.0,
+        "unit": "USD millions",
+        "company": "AMZN",
+        "fiscal_year": 2024,
+        "xbrl_concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+        "xbrl_note": null
+      },
+      "status": "match",
+      "xbrl": {
+        "value": 637959000000.0,
+        "start": "2024-01-01",
+        "end": "2024-12-31",
+        "accession": "0001018724-25-000004",
+        "form": "10-K"
+      },
+      "detail": ""
+    }
+  ]
+}

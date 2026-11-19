@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +38,9 @@ class AblationPlan:
     indexes: list[ChunkingConfig]
     base: RetrievalConfig
     groups: dict[str, dict[str, RetrievalConfig]]
+    titles: dict[str, str] = field(default_factory=dict)
+    dataset: str | None = None  # a plan pinned to one dataset (tuning: the dev set) runs only on it
+    name: str = "ablations"
 
 
 def load_ablations(path: Path = CONFIG_DIR / "ablations.yaml") -> AblationPlan:
@@ -54,6 +57,9 @@ def load_ablations(path: Path = CONFIG_DIR / "ablations.yaml") -> AblationPlan:
         indexes=[ChunkingConfig(**i) for i in raw["indexes"]],
         base=retrieval_config(base_values),
         groups=groups,
+        titles=dict(raw.get("titles") or {}),
+        dataset=raw.get("dataset"),
+        name=path.stem,
     )
 
 

@@ -49,7 +49,9 @@ _INSERT_BATCH = 500
 
 
 def default_chunking(settings: Settings) -> ChunkingConfig:
-    return ChunkingConfig("section", settings.chunk_size_tokens, settings.chunk_overlap_tokens)
+    return ChunkingConfig(
+        "section", settings.chunk_size_tokens, settings.chunk_overlap_tokens, settings.chunk_context
+    )
 
 
 def document_label(doc: Document) -> str:

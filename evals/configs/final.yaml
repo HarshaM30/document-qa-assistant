@@ -1,4 +1,6 @@
 # Configuration used for the generation eval (matches the API defaults in .env.example).
+# Milestone 5b: metadata filter + per-company decomposition chosen on the dev set
+# (evals/configs/tuning.yaml); qa_v1 was not used for any of these choices.
 name: final
 retrieval:
   index_config: section-512-64
@@ -11,4 +13,7 @@ retrieval:
   rerank_candidates: 30
   top_n: 6
   ef_search: 100
+  metadata_filter: true
+  decompose: true
+  decompose_by: company
 refusal_min_rerank_score: 0.0

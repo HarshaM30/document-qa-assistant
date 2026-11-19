@@ -112,3 +112,64 @@ def test_naive_chunker_windows_and_attribution() -> None:
     assert spanning[0].page_start == 1
     assert spanning[0].page_end == 2
     assert chunks[1].text.split()[0] == chunks[0].text.split()[-8]  # 8-token overlap
+
+
+def test_context_config_keys() -> None:
+    assert ChunkingConfig("section", 512, 64, "tables").key == "section-512-64-ctx-tables"
+    assert ChunkingConfig("section", 512, 64, "all").key == "section-512-64-ctx-all"
+    with pytest.raises(ValueError, match="naive"):
+        ChunkingConfig("naive", 512, 64, "tables")
+
+
+def _financial_section() -> ParsedSection:
+    rows = [[Cell(""), Cell("2025"), Cell("2024")]]
+    rows += [[Cell(f"Line item {i}"), Cell(f"{i},000"), Cell(f"{i},500")] for i in range(3)]
+    return ParsedSection(
+        "7",
+        "Item 7. Management's Discussion and Analysis of Financial Condition",
+        [
+            TextBlock("Segment Operating Performance", 3),
+            TextBlock("The following table shows net sales by segment (in millions):", 3),
+            TableBlock(rows, page=3, caption="The following table shows net sales by segment"),
+            TextBlock("Revenue grew.", 3),
+            TableBlock(rows, page=3, caption="(a) Excludes amounts that are not allocated."),
+        ],
+    )
+
+
+@pytest.mark.parametrize("context", ["tables", "all"])
+def test_short_context_header_on_tables(context: str) -> None:
+    config = ChunkingConfig("section", 200, 0, context)  # type: ignore[arg-type]
+    chunks = SectionChunker(TOK, config).chunk(doc_with(_financial_section()), "ACME 10-K FY2025")
+    tables = [c for c in chunks if c.is_table]
+    # Nearest sub-heading within a few blocks is the title; footnote captions are not.
+    assert [t.heading for t in tables] == [
+        "ACME 10-K FY2025 | Item 7 MD&A | Segment Operating Performance",
+        "ACME 10-K FY2025 | Item 7 MD&A | Segment Operating Performance",
+    ]
+    # The stored text is unchanged, so quotes and citations still match it.
+    assert tables[0].text.splitlines()[0].startswith("Table: The following table")
+    text_heading = next(c.heading for c in chunks if not c.is_table)
+    if context == "all":
+        assert text_heading == "ACME 10-K FY2025 | Item 7 MD&A"
+    else:
+        assert text_heading.startswith("ACME 10-K FY2025 — Item 7. Management's")
+
+
+def test_table_title_falls_back_to_short_caption() -> None:
+    rows = [[Cell(""), Cell("2025")], [Cell("A"), Cell("1")], [Cell("B"), Cell("2")]]
+    long_caption = "The following table summarizes the activity " + "in the account " * 6
+    section = ParsedSection(
+        "8",
+        "Item 8. Financial Statements",
+        [
+            TextBlock("Revenue grew strongly in the year.", 1),
+            TableBlock(rows, page=1, caption=long_caption),
+        ],
+    )
+    config = ChunkingConfig("section", 200, 0, "tables")
+    [table] = [c for c in SectionChunker(TOK, config).chunk(doc_with(section), "X") if c.is_table]
+    title = table.heading.split(" | ")[-1]
+    assert title.startswith("The following table summarizes")
+    assert title.endswith("…")
+    assert len(title) <= 81

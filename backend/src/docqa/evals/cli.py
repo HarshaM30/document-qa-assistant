@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from docqa.config import get_settings
@@ -17,6 +18,37 @@ from docqa.config import get_settings
 eval_app = typer.Typer(help="Evaluation: dataset checks, retrieval, ablations, generation.")
 
 DatasetOption = Annotated[Path | None, typer.Option(help="Dataset JSONL (default: qa_v1).")]
+PlanOption = Annotated[
+    Path | None,
+    typer.Option(help="Plan YAML in evals/configs (default: ablations.yaml; tuning.yaml for 5b)."),
+]
+RetrievalConfigOption = Annotated[
+    Path | None,
+    typer.Option(help="YAML with a `retrieval` mapping (default: the ablations base config)."),
+]
+
+
+def _plan(path: Path | None) -> Any:
+    from docqa.evals.configs import CONFIG_DIR, load_ablations
+
+    return load_ablations(path or CONFIG_DIR / "ablations.yaml")
+
+
+def _plan_dataset(plan: Any, dataset: Path | None) -> Any:
+    """The plan's pinned dataset (tuning runs on the dev set only); refuse any other."""
+    from docqa.evals.dataset import DATASET_DIR
+
+    if plan.dataset is None:
+        return _dataset(dataset)
+    pinned = DATASET_DIR / plan.dataset
+    if dataset is not None and dataset.resolve() != pinned.resolve():
+        typer.secho(
+            f"{plan.name} is pinned to {plan.dataset}; tuning must not see other datasets.",
+            fg="red",
+            err=True,
+        )
+        raise typer.Exit(2)
+    return _dataset(pinned)
 
 
 def _setup_logging() -> None:
@@ -58,8 +90,9 @@ def _echo_report(paths: tuple[Path, Path]) -> None:
 @eval_app.command("index")
 def index(
     force: Annotated[bool, typer.Option(help="Rebuild variants that already exist.")] = False,
+    plan_file: PlanOption = None,
 ) -> None:
-    """Build the chunk variants listed in evals/configs/ablations.yaml into the library."""
+    """Build the chunk variants listed in an eval plan (default ablations.yaml) into the library."""
     from docqa.db.session import create_engine, create_sessionmaker
     from docqa.evals.configs import load_ablations
     from docqa.ingestion.edgar import Lockfile
@@ -68,7 +101,7 @@ def index(
 
     _setup_logging()
     settings = get_settings()
-    plan = load_ablations()
+    plan = load_ablations(plan_file) if plan_file else load_ablations()
 
     async def run() -> None:
         engine = create_engine(settings)
@@ -245,8 +278,8 @@ def _retriever() -> Any:
 
 
 @eval_app.command("retrieval")
-def retrieval(dataset: DatasetOption = None) -> None:
-    """Recall@5/10 and MRR for the base retrieval config, overall and per category."""
+def retrieval(dataset: DatasetOption = None, config_file: RetrievalConfigOption = None) -> None:
+    """Recall@5/10 and MRR for one retrieval config, overall and per category."""
     from docqa.evals.ablations import render_retrieval, run_summary
     from docqa.evals.configs import load_ablations
     from docqa.evals.reports import write_report
@@ -260,6 +293,11 @@ def retrieval(dataset: DatasetOption = None) -> None:
     _setup_logging()
     ds = _dataset(dataset)
     config = load_ablations().base
+    if config_file is not None:
+        from docqa.evals.configs import retrieval_config
+
+        values = yaml.safe_load(config_file.read_text())["retrieval"]
+        config = retrieval_config(values | {"top_n": max(values.get("top_n", 0), 10)})
 
     async def run() -> Any:
         async with _session() as db:
@@ -274,21 +312,20 @@ def retrieval(dataset: DatasetOption = None) -> None:
 
 
 @eval_app.command("ablations")
-def ablations(dataset: DatasetOption = None) -> None:
-    """Run every retrieval variant in evals/configs/ablations.yaml (no LLM calls)."""
+def ablations(dataset: DatasetOption = None, plan_file: PlanOption = None) -> None:
+    """Run every retrieval variant in an eval plan (default ablations.yaml; no LLM calls)."""
     from docqa.evals.ablations import (
         GoldCache,
         ablations_summary,
         render_ablations,
         run_ablations,
     )
-    from docqa.evals.configs import load_ablations
     from docqa.evals.reports import write_report
     from docqa.evals.retrieval_eval import ensure_eval_workspace, library_documents
 
     _setup_logging()
-    ds = _dataset(dataset)
-    plan = load_ablations()
+    plan = _plan(plan_file)
+    ds = _plan_dataset(plan, dataset)
 
     async def run() -> Any:
         async with _session() as db:
@@ -297,8 +334,9 @@ def ablations(dataset: DatasetOption = None) -> None:
             return await run_ablations(db, _retriever(), workspace_id, ds, plan, gold)
 
     runs = _run(run)
-    markdown = render_ablations(runs)
-    _echo_report(write_report("ablations", ds, ablations_summary(runs), markdown))
+    heading = "Retrieval ablations" if plan.dataset is None else f"Retrieval tuning ({plan.name})"
+    markdown = render_ablations(runs, plan.titles, heading)
+    _echo_report(write_report(plan.name, ds, ablations_summary(runs), markdown))
     typer.echo(markdown)
 
 
@@ -500,4 +538,54 @@ def agreement_cmd(
         "confusion": result.confusion,
     }
     _echo_report(write_report("human-agreement", ds, data, markdown))
+    typer.echo(markdown)
+
+
+@eval_app.command("compare")
+def compare(
+    before_retrieval: Annotated[Path, typer.Option(help="Baseline retrieval report JSON.")],
+    after_retrieval: Annotated[Path, typer.Option(help="Final retrieval report JSON.")],
+    before_generation: Annotated[
+        Path | None, typer.Option(help="Baseline generation report JSON.")
+    ] = None,
+    after_generation: Annotated[
+        Path | None, typer.Option(help="Final generation report JSON.")
+    ] = None,
+    tuning: Annotated[
+        str | None, typer.Option(help="Tuning report name, cited in the text.")
+    ] = None,
+    dataset: DatasetOption = None,
+) -> None:
+    """Before/after report from saved retrieval (and generation) report JSONs. No LLM calls."""
+    import json
+
+    from docqa.evals.compare import render_comparison
+    from docqa.evals.reports import write_report
+
+    def load(path: Path) -> Any:
+        return json.loads(path.read_text())
+
+    ds = _dataset(dataset)
+    retrieval_pair = (load(before_retrieval), load(after_retrieval))
+    generation_pair = (
+        (load(before_generation), load(after_generation))
+        if before_generation and after_generation
+        else None
+    )
+    for report in (*retrieval_pair, *(generation_pair or ())):
+        if report.get("dataset") != ds.version:
+            typer.secho(
+                f"Report is for {report.get('dataset')}, not {ds.version}.", fg="red", err=True
+            )
+            raise typer.Exit(1)
+    markdown = render_comparison(retrieval_pair, generation_pair, tuning)
+    data = {
+        "inputs": {
+            "before_retrieval": before_retrieval.name,
+            "after_retrieval": after_retrieval.name,
+            "before_generation": before_generation.name if before_generation else None,
+            "after_generation": after_generation.name if after_generation else None,
+        }
+    }
+    _echo_report(write_report("before-after", ds, data, markdown))
     typer.echo(markdown)
