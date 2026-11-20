@@ -341,7 +341,7 @@ qa_v1 is run once with the final configuration. The baseline reports are kept as
 
 **Done when**
 - [x] A fresh clone + `.env` from `.env.example` + `make setup up` works following only the README. (Checked on a clone with its own Compose project and empty volumes: all services healthy, sign up → upload → ingest → ask streams tokens, citations and `done`.)
-- [ ] Mermaid diagram renders on GitHub.
+- [x] Mermaid diagram renders on GitHub.
 - [x] History audit is clean across all commits. (`gitleaks git .`: two false positives, `index_config` keys in a test, recorded in `.gitleaksignore`; no local-only or env files ever tracked; no commit trailers; one author with a noreply address; largest blob 0.8 MB, an eval checkpoint.)
 
 ---
