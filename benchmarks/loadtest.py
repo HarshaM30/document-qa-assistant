@@ -59,15 +59,18 @@ def _quoted(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-async def prepare_database(settings: Settings) -> tuple[str, int]:
-    """Clone the template DB into docqa_load; return its URL and how many filings it has."""
+async def prepare_database(settings: Settings, name: str = LOAD_DB) -> tuple[str, int]:
+    """Clone the template DB into `name`; return its URL and how many filings it has.
+
+    Also used by docs/record_demo.py (`make demo-gif`).
+    """
     template = os.environ.get("LOADTEST_TEMPLATE_DB") or make_url(settings.database_url).database
-    target = make_url(settings.test_database_url).set(database=LOAD_DB)
+    target = make_url(settings.test_database_url).set(database=name)
     url = target.render_as_string(hide_password=False)
     admin = create_async_engine(target.set(database="postgres"), isolation_level="AUTOCOMMIT")
     try:
         async with admin.connect() as conn:
-            await conn.execute(text(f"DROP DATABASE IF EXISTS {_quoted(LOAD_DB)} WITH (FORCE)"))
+            await conn.execute(text(f"DROP DATABASE IF EXISTS {_quoted(name)} WITH (FORCE)"))
             exists = await conn.scalar(
                 text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": template}
             )
@@ -75,7 +78,7 @@ async def prepare_database(settings: Settings) -> tuple[str, int]:
                 if not exists:
                     raise RuntimeError(f"template database {template!r} not found")
                 await conn.execute(
-                    text(f"CREATE DATABASE {_quoted(LOAD_DB)} TEMPLATE {_quoted(str(template))}")
+                    text(f"CREATE DATABASE {_quoted(name)} TEMPLATE {_quoted(str(template))}")
                 )
             except Exception as exc:
                 print(
@@ -83,7 +86,7 @@ async def prepare_database(settings: Settings) -> tuple[str, int]:
                     "worker connected to it? Starting from an empty database instead.",
                     flush=True,
                 )
-                await conn.execute(text(f"CREATE DATABASE {_quoted(LOAD_DB)}"))
+                await conn.execute(text(f"CREATE DATABASE {_quoted(name)}"))
     finally:
         await admin.dispose()
 
@@ -111,7 +114,7 @@ async def prepare_database(settings: Settings) -> tuple[str, int]:
             chunks = await conn.scalar(text("SELECT count(*) FROM chunks"))
     finally:
         await engine.dispose()
-    print(f"Load-test database ready: {filings} filings, {chunks} chunks ({key})", flush=True)
+    print(f"Database {name} ready: {filings} filings, {chunks} chunks ({key})", flush=True)
     return url, int(filings or 0)
 
 

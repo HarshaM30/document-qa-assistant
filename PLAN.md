@@ -106,7 +106,9 @@ document-qa-assistant/
 │   └── e2e/
 │       ├── playwright.config.ts  # starts API + worker (fresh docqa_e2e DB) and the built frontend
 │       ├── start-backend.sh      # reset DB, run worker + API for the tests
-│       └── happy-path.spec.ts    # sign up → upload → ask → open citation; auth; stream errors; rate limit
+│       ├── happy-path.spec.ts    # sign up → upload → ask → open citation; auth; stream errors; rate limit
+│       ├── demo.config.ts        # video recording config for the README demo (not part of `make e2e`)
+│       └── demo.record.ts        # scripted demo session: attach library → ask → citation → refusal
 ├── evals/
 │   ├── datasets/
 │   │   ├── qa_v1.jsonl           # 50 questions with gold answers + source quotes (held-out test set)
@@ -129,12 +131,14 @@ document-qa-assistant/
 │   ├── filings.lock.json         # resolved accession numbers + SHA-256s (committed)
 │   └── raw/                      # gitignored; reproduced by download script
 ├── docs/
-│   └── demo.gif
+│   ├── demo.gif
+│   └── record_demo.py            # `make demo-gif`: clone the library DB, real answer model, Playwright video → ffmpeg GIF
 ├── .github/workflows/ci.yml       # lint, typecheck, unit, integration, build, e2e jobs
 ├── docker-compose.yml
 ├── Makefile
 ├── .env.example
 ├── .gitignore
+├── .gitleaksignore               # reviewed false positives for `gitleaks git .`
 ├── PLAN.md
 └── README.md
 ```
@@ -332,13 +336,13 @@ qa_v1 is run once with the final configuration. The baseline reports are kept as
 **Tasks**
 1. README: overview, Mermaid architecture diagram, demo GIF, one-command setup, results tables (retrieval, ablations, generation, load), design decisions, limitations.
 2. "Deploying to the cloud" section written explicitly as a guide (not a claim of an existing deployment).
-3. Record demo GIF (Playwright video → ffmpeg → GIF).
+3. Record demo GIF (Playwright video → ffmpeg → GIF). `make demo-gif` clones the dev database (with the ingested library) into a throwaway `docqa_demo`, starts an API on port 8003 with the answer model from `.env` (`DEMO_LLM_PROVIDER=fake` for none), warms the models up off camera, and records `frontend/e2e/demo.record.ts` (about four answer-model requests). Recording it showed gpt-oss's Markdown bold as literal `**`; the chat now renders `**bold**` (covered by the E2E stream test).
 4. Pre-publication audit of the full git history: secrets (gitleaks or trufflehog), files that should be local-only, unexpected commit trailers, large files.
 
 **Done when**
-- [ ] A fresh clone + `.env` from `.env.example` + `make setup up` works following only the README.
+- [x] A fresh clone + `.env` from `.env.example` + `make setup up` works following only the README. (Checked on a clone with its own Compose project and empty volumes: all services healthy, sign up → upload → ingest → ask streams tokens, citations and `done`.)
 - [ ] Mermaid diagram renders on GitHub.
-- [ ] History audit is clean across all commits.
+- [x] History audit is clean across all commits. (`gitleaks git .`: two false positives, `index_config` keys in a test, recorded in `.gitleaksignore`; no local-only or env files ever tracked; no commit trailers; one author with a noreply address; largest blob 0.8 MB, an eval checkpoint.)
 
 ---
 

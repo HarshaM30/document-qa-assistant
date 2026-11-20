@@ -10,7 +10,7 @@ FRONTEND := npm --prefix frontend
         resolve-filings download ingest-filings check-llm \
         eval-index eval-verify eval-xbrl eval-retrieval eval-ablations eval-generate \
         eval-report eval-human eval-agreement eval-tune-index eval-tune eval-final-retrieval \
-        models loadtest bench-pdfs bench-ingest
+        models loadtest bench-pdfs bench-ingest demo-gif
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -129,3 +129,8 @@ bench-pdfs: ## Print four locked 10-Ks to PDF (data/bench/pdfs) for the ingestio
 
 bench-ingest: deps ## Ingestion pages/minute for the 10-K filings and the PDF set, concurrency 1 and 2
 	$(BACKEND) python ../benchmarks/ingest_throughput.py
+
+# --- Docs ---
+
+demo-gif: deps ## Record docs/demo.gif (scripted browser session over the filings library)
+	$(BACKEND) python ../docs/record_demo.py

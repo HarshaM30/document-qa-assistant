@@ -36,6 +36,9 @@ data/bench/
 # --- Benchmark scratch output (summaries are written into benchmarks/results.md) ---
 benchmarks/out/
 
+# --- Demo recording scratch output (the GIF itself is committed) ---
+docs/out/
+
 # --- Eval scratch output (checkpoints in evals/checkpoints/ are committed) ---
 evals/.budget/
 

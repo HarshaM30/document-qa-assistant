@@ -126,7 +126,8 @@ test('a cut-off stream keeps its partial answer, and the rate limit says when to
   await page.getByRole('link', { name: 'Chat' }).click()
   const question = page.getByLabel('Question')
 
-  // The connection drops after two tokens: the text so far stays, with a notice.
+  // The connection drops after a few tokens: the text so far stays (Markdown bold rendered
+  // as bold), with a notice.
   await page.route('**/ask', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     await route.fulfill({
@@ -136,7 +137,10 @@ test('a cut-off stream keeps its partial answer, and the rate limit says when to
         'Access-Control-Allow-Origin': new URL(page.url()).origin,
         'Access-Control-Allow-Credentials': 'true',
       },
-      body: 'event: token\ndata: {"text":"Partial "}\n\nevent: token\ndata: {"text":"answer"}\n\n',
+      body:
+        'event: token\ndata: {"text":"**Partial"}\n\n' +
+        'event: token\ndata: {"text":"** "}\n\n' +
+        'event: token\ndata: {"text":"answer"}\n\n',
     })
   })
   await question.fill('What happens if the network drops?')
@@ -144,6 +148,7 @@ test('a cut-off stream keeps its partial answer, and the rate limit says when to
   const cut = page.getByTestId('chat-turn').last()
   await expect(cut).toHaveAttribute('data-state', 'error')
   await expect(cut.getByTestId('answer-text')).toHaveText('Partial answer')
+  await expect(cut.getByTestId('answer-text').locator('strong')).toHaveText('Partial')
   await expect(cut.getByTestId('answer-error')).toContainText('closed before the answer finished')
   await page.unroute('**/ask')
 

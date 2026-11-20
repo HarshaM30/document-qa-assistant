@@ -5,7 +5,10 @@ import { CitationChip } from './CitationChip'
 // [1], [1, 3], and gpt-oss's line-referenced form [1†L9-L10]
 const MARKER = /(\[\s*\d+(?:\s*,\s*\d+)*\s*(?:†[^\]]*)?\])/g
 
-/** Answer text with [n] markers rendered as clickable superscripts. */
+// Models sometimes emphasise figures with Markdown bold (**$254,098 million**).
+const BOLD = /\*\*([^*\n]+?)\*\*/g
+
+/** Answer text with **bold** spans and [n] markers rendered as clickable superscripts. */
 function AnswerText({
   text,
   citations,
@@ -16,28 +19,43 @@ function AnswerText({
   onSelect: (c: Citation) => void
 }) {
   const byMarker = new Map(citations.map((c) => [c.marker, c]))
-  return (
-    <>
-      {text.split(MARKER).map((part, i) => {
-        if (i % 2 === 0) return part
-        const numbers = part.slice(1, -1).split('†')[0].split(',').map((n) => Number(n.trim()))
-        return numbers.map((n, j) => {
-          const citation = byMarker.get(n)
-          if (!citation) return <sup key={`${i}-${j}`} className="text-slate-400">[{n}]</sup>
+  const withMarkers = (segment: string, key: string) =>
+    segment.split(MARKER).map((part, i) => {
+      if (i % 2 === 0) return part
+      const numbers = part.slice(1, -1).split('†')[0].split(',').map((n) => Number(n.trim()))
+      return numbers.map((n, j) => {
+        const citation = byMarker.get(n)
+        if (!citation)
           return (
-            <sup key={`${i}-${j}`}>
-              <button
-                type="button"
-                className="font-semibold text-indigo-700 hover:underline"
-                onClick={() => onSelect(citation)}
-                aria-label={`Show source ${n}`}
-              >
-                [{n}]
-              </button>
+            <sup key={`${key}-${i}-${j}`} className="text-slate-400">
+              [{n}]
             </sup>
           )
-        })
-      })}
+        return (
+          <sup key={`${key}-${i}-${j}`}>
+            <button
+              type="button"
+              className="font-semibold text-indigo-700 hover:underline"
+              onClick={() => onSelect(citation)}
+              aria-label={`Show source ${n}`}
+            >
+              [{n}]
+            </button>
+          </sup>
+        )
+      })
+    })
+  return (
+    <>
+      {text.split(BOLD).map((part, i) =>
+        i % 2 === 0 ? (
+          withMarkers(part, String(i))
+        ) : (
+          <strong key={i} className="font-semibold">
+            {withMarkers(part, String(i))}
+          </strong>
+        ),
+      )}
     </>
   )
 }
